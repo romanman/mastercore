@@ -844,11 +844,11 @@ public:
     string spKey = (boost::format(FORMAT_BOOST_SPKEY) % spid).str();
     leveldb::Iterator *iter = pDb->NewIterator(readOpts);
     iter->Seek(spKey);
-    if (iter->Valid() && iter->key().compare(spKey) == 0) {
-      return true;
-    }
+    bool res = (iter->Valid() && iter->key().compare(spKey) == 0);
+    // clean up the iterator
+    delete iter;
 
-    return false;
+    return res;
   }
 
   unsigned int findSPByTX(uint256 const &txid)
@@ -916,6 +916,9 @@ public:
       }
     }
 
+    // clean up the iterator
+    delete iter;
+
     leveldb::WriteOptions writeOptions;
     writeOptions.sync = true;
 
@@ -934,7 +937,10 @@ public:
     leveldb::WriteOptions writeOptions;
     writeOptions.sync = true;
 
-    pDb->Put(writeOptions, watermarkKey, watermark.ToString());
+    leveldb::WriteBatch commitBatch;
+    commitBatch.Delete(watermarkKey);
+    commitBatch.Put(watermarkKey, watermark.ToString());
+    pDb->Write(writeOptions, &commitBatch);
   }
 
   int getWatermark(uint256 &watermark)
@@ -985,6 +991,9 @@ public:
         }
       }
     }
+
+    // clean up the iterator
+    delete iter;
   }
 };
 
@@ -1702,8 +1711,9 @@ int calculateFractional(unsigned short int propType, unsigned char bonusPerc, ui
   return missedTokens;
 }
 
-unsigned int eraseExpiredCrowdsale(const int64_t blockTime)
+unsigned int eraseExpiredCrowdsale(CBlockIndex const * pBlockIndex)
 {
+  const int64_t blockTime = pBlockIndex->GetBlockTime();
 unsigned int how_many_erased = 0;
 CrowdMap::iterator my_it = my_crowds.begin();
 
@@ -1743,6 +1753,7 @@ CrowdMap::iterator my_it = my_crowds.begin();
 
       //get txdata
       sp.txFundraiserData = crowd.getDatabase();
+      sp.update_block = pBlockIndex->GetBlockHash();
 
       //update SP with this data
       _my_sps->updateSP(crowd.getPropertyId() , sp);
@@ -2355,6 +2366,7 @@ public:
         newSP.url.assign(url);
         newSP.data.assign(data);
         newSP.fixed = true;
+        newSP.creation_block = newSP.update_block = chainActive[block]->GetBlockHash();
 
         const unsigned int id = _my_sps->putSP(ecosystem, newSP);
         update_tally_map(sender, id, nValue, MONEY);
@@ -2395,6 +2407,7 @@ public:
         newSP.deadline = deadline;
         newSP.early_bird = early_bird;
         newSP.percentage = percentage;
+        newSP.creation_block = newSP.update_block = chainActive[block]->GetBlockHash();
 
         const unsigned int id = _my_sps->putSP(ecosystem, newSP);
         my_crowds.insert(std::make_pair(sender, CMPCrowd(id, nValue, currency, deadline, early_bird, percentage, 0, 0)));
@@ -2446,6 +2459,7 @@ public:
         //fprintf(mp_fp,"\nValues coming out of calculateFractional(): Total tokens, Tokens created, Tokens for issuer, amountMissed: issuer %s %ld %ld %ld %f\n",sp.issuer.c_str(), crowd.getUserCreated() + crowd.getIssuerCreated(), crowd.getUserCreated(), crowd.getIssuerCreated(), missedTokens);
         
         sp.txFundraiserData = crowd.getDatabase();
+        sp.update_block = chainActive[block]->GetBlockHash();
         
         _my_sps->updateSP(crowd.getPropertyId() , sp);
         
@@ -2852,7 +2866,7 @@ const unsigned int currency = MASTERCOIN_CURRENCY_MSC;  // FIXME: hard-coded for
 
 int mastercore_handler_block_begin(int nBlockNow, CBlockIndex const * pBlockIndex)
 {
-  (void) eraseExpiredCrowdsale(pBlockIndex->GetBlockTime());
+  (void) eraseExpiredCrowdsale(pBlockIndex);
 
   return 0;
 }
@@ -3952,7 +3966,7 @@ static char const * const statePrefix[NUM_FILETYPES] = {
     "balances",
     "offers",
     "accepts",
-    "devmsc",
+    "globals",
     "crowdsales",
 };
 
@@ -4289,6 +4303,8 @@ int mastercore_save_state( CBlockIndex const *pBlockIndex )
   // clean-up the directory
   prune_state_files(pBlockIndex);
 
+  _my_sps->setWatermark(*pBlockIndex->phashBlock);
+
   return 0;
 }
 
@@ -4424,6 +4440,11 @@ int mastercore_shutdown()
     fclose(mp_fp);
 #endif
     mp_fp = NULL;
+  }
+
+  if (_my_sps)
+  {
+    delete _my_sps; _my_sps = NULL;
   }
 
   return 0;
