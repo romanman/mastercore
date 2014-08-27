@@ -2001,6 +2001,7 @@ bool static DisconnectTip(CValidationState &state) {
 bool static ConnectTip(CValidationState &state, CBlockIndex *pindexNew) {
     assert(pindexNew->pprev == chainActive.Tip());
     printf("\nConnectTip() called... (%s)\n", pindexNew->GetBlockHash().ToString().c_str());
+    (void) mastercore_handler_block_begin(GetHeight(), pindexNew);
     mempool.check(pcoinsTip);
     // Read block from disk.
     CBlock block;
@@ -2040,7 +2041,6 @@ bool static ConnectTip(CValidationState &state, CBlockIndex *pindexNew) {
         SyncWithWallets(tx.GetHash(), tx, NULL);
     }
     unsigned int tx_idx = 0, countMP = 0;  // mastercore: tx position/index within the block & how many MP found
-    (void) mastercore_handler_block_begin(GetHeight(), pindexNew);
     // ... and about transactions that got confirmed:
     BOOST_FOREACH(const CTransaction &tx, block.vtx) {
         SyncWithWallets(tx.GetHash(), tx, &block);

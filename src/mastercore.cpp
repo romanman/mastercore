@@ -114,6 +114,8 @@ static int disableLevelDB = 0;
 
 static int mastercoreInitialized = 0;
 
+static int reorgRecoveryMode = 0;
+
 // TODO: there would be a block height for each TX version -- rework together with BLOCKHEIGHTRESTRICTIONS above
 static const int txRestrictionsRules[][3] = {
   {MSC_TYPE_SIMPLE_SEND,              GENESIS_BLOCK,      MP_TX_PKT_V0},
@@ -3336,52 +3338,6 @@ const unsigned int currency = MASTERCOIN_CURRENCY_MSC;  // FIXME: hard-coded for
   return (my_addresses_count);
 }
 
-int mastercore_handler_block_begin(int nBlockNow, CBlockIndex const * pBlockIndex)
-{
-  if (0 < nBlockTop) if (nBlockTop < nBlockNow) return 0;
-
-  (void) eraseExpiredCrowdsale(pBlockIndex);
-
-  return 0;
-}
-
-// called once per block, after the block has been processed
-// TODO: consolidate into *handler_block_begin() << need to adjust Accept expiry check.............
-// it performs cleanup and other functions
-int mastercore_handler_block_end(int nBlockNow, CBlockIndex const * pBlockIndex, unsigned int countMP)
-{
-  if (!mastercoreInitialized) {
-    mastercore_init();
-  }
-
-  if (0 < nBlockTop) if (nBlockTop < nBlockNow) return 0;
-
-// for every new received block must do:
-// 1) remove expired entries from the accept list (per spec accept entries are valid until their blocklimit expiration; because the customer can keep paying BTC for the offer in several installments)
-// 2) update the amount in the Exodus address
-uint64_t devmsc = 0;
-unsigned int how_many_erased = eraseExpiredAccepts(nBlockNow);
-
-  if (how_many_erased) fprintf(mp_fp, "%s(%d); erased %u accepts this block, line %d, file: %s\n",
-   __FUNCTION__, how_many_erased, nBlockNow, __LINE__, __FILE__);
-
-  // calculate devmsc as of this block and update the Exodus' balance
-  devmsc = calculate_and_update_devmsc(pBlockIndex->GetBlockTime());
-
-  if (msc_debug_exo) fprintf(mp_fp, "devmsc for block %d: %lu, Exodus balance: %lu\n",
-   nBlockNow, devmsc, getMPbalance(exodus, MASTERCOIN_CURRENCY_MSC, MONEY));
-
-  // get the total MSC for this wallet, for QT display
-  (void) set_wallet_totals();
-//  printf("the globals: MSC_total= %lu, MSC_RESERVED_total= %lu\n", global_MSC_total, global_MSC_RESERVED_total);
-
-  if (mp_fp) fflush(mp_fp);
-
-  // save out the state after this block
-  if (writePersistence(nBlockNow)) mastercore_save_state(pBlockIndex);
-
-  return 0;
-}
 
 static void prepareObfuscatedHashes(const string &address, string (&ObfsHashes)[1+MAX_SHA256_OBFUSCATION_TIMES])
 {
@@ -4756,6 +4712,7 @@ int mastercore_init()
       my_accepts.clear();
       my_crowds.clear();
       _my_sps->clear();
+      exodus_prev = 0;
     }
 
     if (nWaterlineBlock < snapshotHeight)
@@ -7040,19 +6997,97 @@ std::string CScript::mscore_parse(std::vector<std::string>&msc_parsed, bool bNoB
     return str;
 }
 
-int mastercore_handler_disc_begin(int nBlockNow, CBlockIndex const * pBlockIndex) { return 0; }
+int mastercore_handler_block_begin(int nBlockPrev, CBlockIndex const * pBlockIndex) {
+  if (reorgRecoveryMode > 0) {
+    reorgRecoveryMode = 0;  // clear reorgRecovery here as this is likely re-entrant
+
+    nWaterlineBlock = GENESIS_BLOCK - 1;
+    if (isNonMainNet()) nWaterlineBlock = START_TESTNET_BLOCK - 1;
+    if (RegTest()) nWaterlineBlock = START_REGTEST_BLOCK - 1;
+
+
+    if(readPersistence()) {
+      int best_state_block = load_most_relevant_state();
+      if (best_state_block < 0) {
+        // unable to recover easily, remove stale stale state bits and reparse from the beginning.
+        mp_tally_map.clear();
+        my_offers.clear();
+        my_accepts.clear();
+        my_crowds.clear();
+        _my_sps->clear();
+        exodus_prev = 0;
+      } else {
+        nWaterlineBlock = best_state_block;
+      }
+    }
+
+    if (nWaterlineBlock < nBlockPrev) {
+      // scan from the block after the best active block to catch up to the active chain
+      msc_initial_scan(nWaterlineBlock + 1);
+    }
+  }
+
+  if (0 < nBlockTop)
+    if (nBlockTop < nBlockPrev + 1)
+      return 0;
+
+  (void) eraseExpiredCrowdsale(pBlockIndex);
+
+  return 0;
+}
+
+// called once per block, after the block has been processed
+// TODO: consolidate into *handler_block_begin() << need to adjust Accept expiry check.............
+// it performs cleanup and other functions
+int mastercore_handler_block_end(int nBlockNow, CBlockIndex const * pBlockIndex,
+    unsigned int countMP) {
+  if (!mastercoreInitialized) {
+    mastercore_init();
+  }
+
+  if (0 < nBlockTop)
+    if (nBlockTop < nBlockNow)
+      return 0;
+
+// for every new received block must do:
+// 1) remove expired entries from the accept list (per spec accept entries are valid until their blocklimit expiration; because the customer can keep paying BTC for the offer in several installments)
+// 2) update the amount in the Exodus address
+  uint64_t devmsc = 0;
+  unsigned int how_many_erased = eraseExpiredAccepts(nBlockNow);
+
+  if (how_many_erased)
+    fprintf(mp_fp, "%s(%d); erased %u accepts this block, line %d, file: %s\n",
+        __FUNCTION__, how_many_erased, nBlockNow, __LINE__, __FILE__);
+
+  // calculate devmsc as of this block and update the Exodus' balance
+  devmsc = calculate_and_update_devmsc(pBlockIndex->GetBlockTime());
+
+  if (msc_debug_exo)
+    fprintf(mp_fp, "devmsc for block %d: %lu, Exodus balance: %lu\n", nBlockNow,
+        devmsc, getMPbalance(exodus, MASTERCOIN_CURRENCY_MSC, MONEY));
+
+  // get the total MSC for this wallet, for QT display
+  (void) set_wallet_totals();
+//  printf("the globals: MSC_total= %lu, MSC_RESERVED_total= %lu\n", global_MSC_total, global_MSC_RESERVED_total);
+
+  if (mp_fp)
+    fflush(mp_fp);
+
+  // save out the state after this block
+  if (writePersistence(nBlockNow))
+    mastercore_save_state(pBlockIndex);
+
+  return 0;
+}
+
+
+int mastercore_handler_disc_begin(int nBlockNow, CBlockIndex const * pBlockIndex)
+{
+    reorgRecoveryMode = 1;
+    return 0;
+}
 
 int mastercore_handler_disc_end(int nBlockNow, CBlockIndex const * pBlockIndex) {
-    printf("\n BLOCK DISCONNECTED: blockinfo %s \n", pBlockIndex->ToString().c_str() );
-
-    //delete entry from MP_txlist
-    bool foundMPTX = p_txlistdb->isMPinBlockRange(pBlockIndex->nHeight, pBlockIndex->nHeight, false);
-    if( foundMPTX ) {
-      printf("\n  MProtocol TX was found in orphaned block, please remove ~/.bitcoin/MP_* and restart your client. \n");
-      fprintf(mp_fp,"\n  MProtocol TX was found in orphaned block, please remove ~/.bitcoin/MP_* and restart your client. \n");
-      AbortNode("\n  MProtocol TX was found in orphaned block, please remove ~/.bitcoin/MP_* and restart your client. \n");
-    }
-    
     return 0;
 }
 
