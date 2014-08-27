@@ -9,11 +9,13 @@
 #include "netbase.h"
 #include "protocol.h"
 
+int const MAX_STATE_HISTORY = 50;
+
 #define TEST_ECO_PROPERTY_1 (0x80000003UL)
 
 // could probably also use: int64_t maxInt64 = std::numeric_limits<int64_t>::max();
 // maximum numeric values from the spec: 
-#define MAX_INT_8_BYTES (9223372036854775807)
+#define MAX_INT_8_BYTES (9223372036854775807UL)
 
 // what should've been in the Exodus address for this block if none were spent
 #define DEV_MSC_BLOCK_290629 (1743358325718)
@@ -44,18 +46,23 @@
 #define PACKET_SIZE         31
 #define MAX_PACKETS         64
 
+#define GOOD_PRECISION  (1e10)
+
 // Transaction types, from the spec
-#define MSC_TYPE_SIMPLE_SEND              0
-#define MSC_TYPE_RESTRICTED_SEND          2
-#define MSC_TYPE_SEND_TO_OWNERS           3
-#define MSC_TYPE_AUTOMATIC_DISPENSARY     15
-#define MSC_TYPE_TRADE_OFFER              20
-#define MSC_TYPE_METADEX                  21
-#define MSC_TYPE_ACCEPT_OFFER_BTC         22
-#define MSC_TYPE_CREATE_PROPERTY_FIXED    50
-#define MSC_TYPE_CREATE_PROPERTY_VARIABLE 51
-#define MSC_TYPE_PROMOTE_PROPERTY         52
-#define MSC_TYPE_CLOSE_CROWDSALE          53
+enum TransactionType {
+  MSC_TYPE_SIMPLE_SEND              =  0,
+  MSC_TYPE_RESTRICTED_SEND          =  2,
+  MSC_TYPE_SEND_TO_OWNERS           =  3,
+  MSC_TYPE_AUTOMATIC_DISPENSARY     = 15,
+  MSC_TYPE_TRADE_OFFER              = 20,
+  MSC_TYPE_METADEX                  = 21,
+  MSC_TYPE_ACCEPT_OFFER_BTC         = 22,
+  MSC_TYPE_OFFER_ACCEPT_A_BET       = 40,
+  MSC_TYPE_CREATE_PROPERTY_FIXED    = 50,
+  MSC_TYPE_CREATE_PROPERTY_VARIABLE = 51,
+  MSC_TYPE_PROMOTE_PROPERTY         = 52,
+  MSC_TYPE_CLOSE_CROWDSALE          = 53,
+};
 
 #define MSC_PROPERTY_TYPE_INDIVISIBLE             1
 #define MSC_PROPERTY_TYPE_DIVISIBLE               2
@@ -64,13 +71,21 @@
 #define MSC_PROPERTY_TYPE_INDIVISIBLE_APPENDING   129
 #define MSC_PROPERTY_TYPE_DIVISIBLE_APPENDING     130
 
+// block height (MainNet) with which the corresponding transaction is considered valid, per spec
 enum BLOCKHEIGHTRESTRICTIONS {
-  SOME_TESTNET_BLOCK= 253728,
+// starting block for parsing on TestNet
+  START_TESTNET_BLOCK=263000,
+  START_REGTEST_BLOCK=5,
+  MONEYMAN_REGTEST_BLOCK= 101, // new address to assign MSC & TMSC on RegTest
+  MONEYMAN_TESTNET_BLOCK= 270775, // new address to assign MSC & TMSC on TestNet
   POST_EXODUS_BLOCK = 255366,
   MSC_DEX_BLOCK     = 290630,
   MSC_SP_BLOCK      = 297110,
   GENESIS_BLOCK     = 249498,
-  LAST_EXODUS_BLOCK = 255365
+  LAST_EXODUS_BLOCK = 255365,
+  MSC_STO_BLOCK     = 999999,
+  MSC_METADEX_BLOCK = 999999,
+  MSC_BET_BLOCK     = 999999,
 };
 
 enum FILETYPES {
@@ -82,14 +97,6 @@ enum FILETYPES {
   NUM_FILETYPES
 };
 
-const char *mastercore_filenames[NUM_FILETYPES]={
-"mastercoin_balances.txt",
-"mastercoin_offers.txt",
-"mastercoin_accepts.txt",
-"mastercoin_globals.txt",
-"mastercoin_crowdsales.txt",
-};
-
 #define PKT_RETURN_OFFER    (1000)
 // #define PKT_RETURN_ACCEPT   (2000)
 
@@ -97,21 +104,30 @@ const char *mastercore_filenames[NUM_FILETYPES]={
 #define DEX_ERROR_SELLOFFER   (-10000)
 #define DEX_ERROR_ACCEPT      (-20000)
 #define DEX_ERROR_PAYMENT     (-30000)
+// Smart Properties
 #define PKT_ERROR_SP          (-40000)
 // Send To Owners
 #define PKT_ERROR_STO         (-50000)
 #define PKT_ERROR_SEND        (-60000)
 #define PKT_ERROR_TRADEOFFER  (-70000)
+#define PKT_ERROR_METADEX     (-80000)
+#define METADEX_ERROR         (-81000)
 
 #define MASTERCOIN_CURRENCY_BTC   0
 #define MASTERCOIN_CURRENCY_MSC   1
 #define MASTERCOIN_CURRENCY_TMSC  2
 
-#define MSC_MAX_KNOWN_CURRENCIES  64  // TODO, FIXME: take this away, used to write persistent files
+// forward declarations
+string FormatDivisibleMP(int64_t n, bool fSign = false);
 
 inline uint64_t rounduint64(double d)
 {
   return (uint64_t)(abs(0.5 + d));
+}
+
+inline bool isNonMainNet()
+{
+  return (TestNet() || RegTest());
 }
 
 extern CCriticalSection cs_tally;
@@ -131,8 +147,6 @@ typedef struct
   TokenMap mp_token;
   TokenMap::iterator my_it;
 
-//  bool    divisible;	// mainly for human-interaction purposes; when divisible: multiply by COIN
-
   bool propertyExists(unsigned int which_currency) const
   {
   const TokenMap::const_iterator it = mp_token.find(which_currency);
@@ -141,16 +155,13 @@ typedef struct
   }
 
 public:
-//  bool isDivisible() const { return divisible; }
 
   unsigned int init()
   {
   unsigned int ret = 0;
 
-//    printf("%s();size = %lu, line %d, file: %s\n", __FUNCTION__, mp_token.size(), __LINE__, __FILE__);
     my_it = mp_token.begin();
     if (my_it != mp_token.end()) ret = my_it->first;
-//    printf("%s();size = %lu, ret= %u, line %d, file: %s\n", __FUNCTION__, mp_token.size(), ret, __LINE__, __FILE__);
 
     return ret;
   }
@@ -159,13 +170,9 @@ public:
   {
   unsigned int ret;
 
-//    printf("%s(), line %d, file: %s\n", __FUNCTION__, __LINE__, __FILE__);
-
     if (my_it == mp_token.end()) return 0;
 
     ret = my_it->first;
-
-//    printf("%s();ret =%u, line %d, file: %s\n", __FUNCTION__, ret, __LINE__, __FILE__);
 
     ++my_it;
 
@@ -198,11 +205,10 @@ public:
   // the constructor -- create an empty tally for an address
   CMPTally()
   {
-//    divisible = true; // TODO: re-think, but currently hard-coded
     my_it = mp_token.begin();
   }
 
-  void print(int which_currency = MASTERCOIN_CURRENCY_MSC, bool bDivisible = true)
+  uint64_t print(int which_currency = MASTERCOIN_CURRENCY_MSC, bool bDivisible = true)
   {
   uint64_t money = 0;
   uint64_t so_r = 0;
@@ -217,13 +223,15 @@ public:
 
     if (bDivisible)
     {
-      printf("%+20.8lf [SO_RESERVE= %+20.8lf , ACCEPT_RESERVE= %+20.8lf ]\n",
-       (double)money/(double)COIN, (double)so_r/(double)COIN, (double)a_r/(double)COIN);
+      printf("%22s [SO_RESERVE= %22s , ACCEPT_RESERVE= %22s ]\n",
+       FormatDivisibleMP(money).c_str(), FormatDivisibleMP(so_r).c_str(), FormatDivisibleMP(a_r).c_str());
     }
     else
     {
       printf("%14lu [SO_RESERVE= %14lu , ACCEPT_RESERVE= %14lu ]\n", money, so_r, a_r);
     }
+
+    return (money + so_r + a_r);
   }
 
   uint64_t getMoney(unsigned int which_currency, TallyType ttype)
@@ -290,15 +298,51 @@ public:
     bool exists(const uint256 &txid);
     bool getTX(const uint256 &txid, string &value);
 
-    void printStats()
-    {
-      fprintf(mp_fp, "CMPTxList stats: nWritten= %d , nRead= %d\n", nWritten, nRead);
-    }
-
+    void printStats();
     void printAll();
+
+    bool isMPinBlockRange(int, int, bool);
 };
 
-// extern map<string, CMPTally> mp_tally_map;
+// a metadex trade
+// TODO: finish soon... incomplete for now
+class CMPMetaDEx
+{
+private:
+  int block;
+  uint256 txid;
+  unsigned int idx; // index within the block
+  unsigned int currency;
+  uint64_t amount_original; // the amount for sale specified when the offer was placed
+  unsigned int desired_currency;
+  uint64_t desired_amount_original;
+  unsigned char subaction;
+
+  // price in 2 parts
+  uint64_t  price_int;
+  uint64_t  price_frac;
+
+  // inverse price in 2 parts
+  uint64_t  inverse_int;
+  uint64_t  inverse_frac;
+
+public:
+  uint256 getHash() const { return txid; }
+  unsigned int getCurrency() const { return currency; }
+
+  CMPMetaDEx(int, unsigned int, uint64_t, unsigned int, uint64_t, const uint256 &, unsigned int);
+  CMPMetaDEx(int, unsigned int, uint64_t, unsigned int, uint64_t, const uint256 &, unsigned int, uint64_t, uint64_t, uint64_t, uint64_t);
+
+  void Set0(int, unsigned int, uint64_t, unsigned int, uint64_t, const uint256 &, unsigned int);
+
+  void Set(uint64_t, uint64_t);
+  void Set(uint64_t, uint64_t, uint64_t, uint64_t);
+
+  std::string ToString() const;
+};
+
+typedef std::map<string, CMPMetaDEx> MetaDExMap;
+
 extern uint64_t global_MSC_total;
 extern uint64_t global_MSC_RESERVED_total;
 

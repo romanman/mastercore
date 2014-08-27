@@ -1,4 +1,4 @@
-Master Core integration/staging tree
+Master Core (Beta) integration/staging tree
 =================================================
 
 What is the Master Protocol
@@ -31,32 +31,115 @@ Testnet
 -------------------
 
 1. To run Master Core in testnet mode, run mastercore with the following option in place: ``` -testnet ```.
-2. Add your address to the list of addresses in your Bitcoin data Testnet dir (usually: ~/.bitcoin/testnet3/mastercoin_balances.txt) to give yourself testnet MSC. 
+2. To receive MSC (and TMSC) on TestNet please send TBTC to moneyqMan7uh8FqdCA2BV5yZ8qVrc9ikLP. For each 1 TBTC you will receive 100 MSC & 100 TMSC.
 
 All functions in this mode will be TESTNET-ONLY (eg. send_MP).
+
+
+Dependencies
+------------
+Boost >= 1.53
 
 Installation
 ------------
 
-*NOTE: This will only build on Linux for now.*
+*NOTE: This will only build on Ubuntu Linux for now.*
+
+You will need appropriate libraries to run Mastercore on Unix, 
+please see [doc/build-unix.md](doc/build-unix.md) for the full listing.
+
+You will need to install git & pkg-config.
 
 ```
-./autogen
+sudo apt-get install git
+sudo apt-get install pkg-config
+```
+
+Clone the Mastercore repo.
+
+```
+ git clone https://github.com/mastercoin-MSC/mastercore.git
+ cd mastercore/
+```
+
+Then, run
+
+```
+./autogen.sh
 ./configure
 make
 ```
+Once complete
+
+```
+cd src/
+```
+and start Mastercore using ```./bitcoind -txindex ```. The inital parse step for a first time run
+will take approximately 10-15 minutes, during this time your client will scan the blockchain for
+Master Protocol transactions. You can view the output of the parsing at any time by viewing the log
+located in ```/tmp/mastercore.log```.
+
+If a message is returned asking you to reindex, pass the ```-reindex``` flag to bitcoind. The reindexing process can take serveral hours.
+
+Note: To avoid passing 'txindex' to the binary, you can use the sample bitcoin.conf (located in 
+~/.bitcoin/ by default) to pass the option on load, avoiding the need for the CLI flag.
+
+In bitcoin.conf:
+```
+server=1
+txindex=1
+```
+
+After this step completes, check that the installation went smoothly by issuing the following
+command ```./bitcoind getinfo``` which should return the 'mastercore version' as well as some
+additional information related to the Bitcoin Network.
+
+*NOTE: This release of Mastercore _does not contain a UI_, please do not try to compile/use 'bitcoinqt' for Master Protocol functionality. The full documentation for the command-line is located in doc/apidocumentation.md.* 
+
+Current Featureset:
+--------------------
+
+* Broadcasting of simple send (tx0), and send to owners (tx3) [doc] (https://github.com/mastercoin-MSC/mastercore/blob/michael-0921/doc/apidocumentation.md#broadcasting-a-simple-send-transaction)
+
+* Obtaining a Master Protocol balance [doc] (https://github.com/mastercoin-MSC/mastercore/blob/michael-0921/doc/apidocumentation.md#obtaining-a-master-protocol-balance)
+
+* Obtaining all MP (including Smart property) balances for an address [doc] (https://github.com/mastercoin-MSC/mastercore/blob/michael-0921/doc/apidocumentation.md#obtaining-all-master-protocol-balances-for-an-address)
+
+* Obtaining all balances for a specific Smart property ID [doc] (https://github.com/mastercoin-MSC/mastercore/blob/michael-0921/doc/apidocumentation.md#obtaining-all-master-protocol-balances-for-a-property-id)
+
+* Retrieving information about any Master Protocol Transaction [doc] (https://github.com/mastercoin-MSC/mastercore/blob/michael-0921/doc/apidocumentation.md#retrieving-a-master-protocol-transaction)
+
+* Listing historical transactions of addresses in the wallet [doc] (https://github.com/mastercoin-MSC/mastercore/blob/michael-0921/doc/apidocumentation.md#listing-historical-transactions)                            
+
+* Retreiving MP information about a Smart Property [doc] (https://github.com/mastercoin-MSC/mastercore/blob/michael-0921/doc/apidocumentation.md#retrieving-information-about-a-master-protocol-property)
+
+* Retreiving active and expired crowdsale information [doc] (https://github.com/mastercoin-MSC/mastercore/blob/michael-0921/doc/apidocumentation.md#retrieving-information-for-a-master-protocol-crowdsale)
 
 Known Issues:
 ----------------
-* Payments for DEx transactions not currently available in history
 
-* Feel free to open more Github issues with other new bugs or improvement suggestions
+* Bug on fee calculation in gettransaction_MP 
+
+* gettransaction_MP output should include matched sell offer txid
+
+Pending additions:
+-------------------
 
 * Make sure send_MP returns an appropriate error code when out of funds
-Pending additions:
 
-* Bug on fee calculation in gettransaction_MP - unreliable
+* Payments for DEx transactions not currently available in history
+
+* Need to finish adding protections for blockchain orphans (re-orgs)
+
+* Fully functional UI
+
+* MetaDex support
+
+* Dex support ( making offer, making accept, making payment)
+
+* Crowdsales ( issuing SP, fundraisers, changing currency, closing fundraisers)
+
+Support:
 ------------------
 
-* gettransaction_MP output should display matched sell offer txid
-
+* Email <mastercore@mastercoin.org> or open a Github Issue to file a bug submission.
