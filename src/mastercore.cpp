@@ -115,6 +115,7 @@ static int disableLevelDB = 0;
 static int mastercoreInitialized = 0;
 
 static int reorgRecoveryMode = 0;
+static int reorgRecoveryMaxHeight = 0;
 
 // TODO: there would be a block height for each TX version -- rework together with BLOCKHEIGHTRESTRICTIONS above
 static const int txRestrictionsRules[][3] = {
@@ -4663,6 +4664,16 @@ int mastercore_save_state( CBlockIndex const *pBlockIndex )
   return 0;
 }
 
+static void clear_all_state() {
+  mp_tally_map.clear();
+  my_offers.clear();
+  my_accepts.clear();
+  my_crowds.clear();
+  _my_sps->clear();
+  exodus_prev = 0;
+}
+
+
 // called from init.cpp of Bitcoin Core
 int mastercore_init()
 {
@@ -4707,12 +4718,7 @@ int mastercore_init()
     nWaterlineBlock = load_most_relevant_state();
     if (nWaterlineBlock < 0) {
       // persistence says we reparse!, nuke some stuff in case the partial loads left stale bits
-      mp_tally_map.clear();
-      my_offers.clear();
-      my_accepts.clear();
-      my_crowds.clear();
-      _my_sps->clear();
-      exodus_prev = 0;
+      clear_all_state();
     }
 
     if (nWaterlineBlock < snapshotHeight)
@@ -7001,6 +7007,12 @@ int mastercore_handler_block_begin(int nBlockPrev, CBlockIndex const * pBlockInd
   if (reorgRecoveryMode > 0) {
     reorgRecoveryMode = 0;  // clear reorgRecovery here as this is likely re-entrant
 
+    // reset states
+    clear_all_state();
+    p_txlistdb->isMPinBlockRange(pBlockIndex->nHeight, reorgRecoveryMaxHeight, true);
+    reorgRecoveryMaxHeight = 0;
+
+
     nWaterlineBlock = GENESIS_BLOCK - 1;
     if (isNonMainNet()) nWaterlineBlock = START_TESTNET_BLOCK - 1;
     if (RegTest()) nWaterlineBlock = START_REGTEST_BLOCK - 1;
@@ -7010,12 +7022,7 @@ int mastercore_handler_block_begin(int nBlockPrev, CBlockIndex const * pBlockInd
       int best_state_block = load_most_relevant_state();
       if (best_state_block < 0) {
         // unable to recover easily, remove stale stale state bits and reparse from the beginning.
-        mp_tally_map.clear();
-        my_offers.clear();
-        my_accepts.clear();
-        my_crowds.clear();
-        _my_sps->clear();
-        exodus_prev = 0;
+        clear_all_state();
       } else {
         nWaterlineBlock = best_state_block;
       }
@@ -7084,6 +7091,7 @@ int mastercore_handler_block_end(int nBlockNow, CBlockIndex const * pBlockIndex,
 int mastercore_handler_disc_begin(int nBlockNow, CBlockIndex const * pBlockIndex)
 {
     reorgRecoveryMode = 1;
+    reorgRecoveryMaxHeight = (pBlockIndex->nHeight > reorgRecoveryMaxHeight) ? pBlockIndex->nHeight: reorgRecoveryMaxHeight;
     return 0;
 }
 
