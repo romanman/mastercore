@@ -5,31 +5,31 @@ echo -e "\nUSAGE: \n-rm, -s{1,2,3}, -h: removes all regtest blocks/wallets, star
 
 if [[ "$1" = "-rm" ]]
 then
-  rm ~/.bitcoin/regtest/ -rf
-  rm ~/.bitcoin2/regtest/ -rf
-  rm ~/.bitcoin3/regtest/ -rf
+  rm ${HOME}/.bitcoin/regtest/ -rf
+  rm ${HOME}/.bitcoin2/regtest/ -rf
+  rm ${HOME}/.bitcoin3/regtest/ -rf
 fi
 
 if [[ "$1" = "-s1" ]]
 then
-  echo "Starting node 1..."; mkdir ~/.bitcoin/ >> /dev/null
+  echo "Starting node 1..."; [ -d ${HOME}/.bitcoin/ ] || mkdir ${HOME}/.bitcoin/ >> /dev/null
 
-  cpulimit -l 60 ./bitcoind -txindex -printtoconsole -regtest -server -rpcport=8330 -rpcssl=0 -datadir=/home/faiz/.bitcoin/ -port=18333 -rpcuser=user -rpcpassword=password 
+  ./bitcoind -txindex -printtoconsole -regtest -server -rpcport=8330 -rpcssl=0 -datadir=${HOME}/.bitcoin/ -port=18333 -rpcuser=user -rpcpassword=password 
 
 fi
 
 if [[ "$1" = "-s2" ]]
 then
-  echo "Starting node 2..."; mkdir ~/.bitcoin2/ >> /dev/null
+  echo "Starting node 2..."; [ -d ${HOME}/.bitcoin2/ ] || mkdir ${HOME}/.bitcoin2/ >> /dev/null
 
-  cpulimit -l 60 ./bitcoind -txindex -printtoconsole -regtest -server -rpcport=8332 -rpcssl=0 -datadir=/home/faiz/.bitcoin2/ -port=18444 -rpcuser=user -rpcpassword=password 
+  ./bitcoind -txindex -printtoconsole -regtest -server -rpcport=8332 -rpcssl=0 -datadir=${HOME}/.bitcoin2/ -port=18444 -rpcuser=user -rpcpassword=password 
 fi
 
 if [[ "$1" = "-s3" ]]
 then
-  echo "Starting node 3..."; mkdir ~/.bitcoin3/ >> /dev/null
+  echo "Starting node 3..."; [ -d ${HOME}/.bitcoin3/ ] || mkdir ${HOME}/.bitcoin3/ >> /dev/null
 
-  cpulimit -l 60 ./bitcoind -txindex -printtoconsole -regtest -server -rpcport=8334 -rpcssl=0 -datadir=/home/faiz/.bitcoin3/ -port=18555 -rpcuser=user -rpcpassword=password 
+  ./bitcoind -txindex -printtoconsole -regtest -server -rpcport=8334 -rpcssl=0 -datadir=${HOME}/.bitcoin3/ -port=18555 -rpcuser=user -rpcpassword=password 
 fi
 
 if [[ "$1" = "-conn2" ]]
