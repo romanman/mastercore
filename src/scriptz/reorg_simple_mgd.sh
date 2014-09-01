@@ -92,7 +92,7 @@ callnode3() {
    echo -e "privkey is $PRIVKEY , addr is $ADDR1" 
    
    echo -e "Generating tx..."
-   RAWTX=$($PYTHONBIN $SCRIPTDIR/generateCS.py 51 2 2 0 Foo Bar Bazz www.bazzcoin.info BazzyFoo 1 3400 1500000000 1 1 "$ADDR1" "$PRIVKEY" "$CONNFILE")
+   RAWTX=$($PYTHONBIN $SCRIPTDIR/generateCS54.py 54 2 2 0 Foo Bar Bazz www.bazzcoin.info BazzyFoo "$ADDR1" "$PRIVKEY" "$CONNFILE" 1)
 
    echo -e "Sending Smart property... $RAWTX\n"
    SPTX1=$(callnode1 sendrawtransaction "$RAWTX")
