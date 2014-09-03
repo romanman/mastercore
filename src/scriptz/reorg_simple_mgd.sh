@@ -103,20 +103,46 @@ callnode3() {
    echo -e "Committing transactions...\n"
    callnode1 setgenerate true 1
    sleep 5
+   
+   # Grant tokens
+   GRANTTX=$($PYTHONBIN $SCRIPTDIR/generateCS55_56.py 55 2147483651 10000 HiHowRU? "$ADDR1" "$PRIVKEY" "$CONNFILE" 1)
+   echo -e "Granting Smart Property to $ADDR1 : $GRANTTX\n"
 
-   TX1=$(callnode1 send_MP $ADDR2 $ADDR1 1 "25.0")
-   echo -e "Sending MSC from $ADDR2 to $ADDR1 to fund Crowdsale, $TX1\n"
+   echo -e "Sending Smart property... $GRANTTX\n"
+   SPTX2=$(callnode1 sendrawtransaction "$GRANTTX")
+
+   echo -e "Success: $SPTX2"
 
    echo -e "Committing transactions...\n"
    callnode1 setgenerate true 1
    sleep 5
+   
+   # Revoke tokens
+   REVOKETX=$($PYTHONBIN $SCRIPTDIR/generateCS55_56.py 56 2147483651 1000 FineThx "$ADDR1" "$PRIVKEY" "$CONNFILE" 1)
+   echo -e "Revoking Smart Property from $ADDR1 : $REVOKETX\n"
 
+   echo -e "Sending Smart property... $REVOKETX\n"
+   SPTX3=$(callnode1 sendrawtransaction "$REVOKETX")
+
+   echo -e "Success: $SPTX3"
+
+   echo -e "Committing transactions...\n"
+   callnode1 setgenerate true 1
+   sleep 5
+   
+   #Done
    echo -e "Showing results..."
    callnode1 listproperties_MP
 
    echo -e "$SPTX1 raw..."
    callnode1 getrawtransaction $SPTX1
-
+   
+   echo -e "$SPTX2 raw..."
+   callnode1 getrawtransaction $SPTX2
+   
+   echo -e "$SPTX3 raw..."
+   callnode1 getrawtransaction $SPTX3
+   
    echo -e "Done. Now we will attempt a reorg. \n\n"
    sleep 1
 
@@ -143,6 +169,14 @@ callnode3() {
    callnode1 getrawtransaction $SPTX1
    callnode3 getrawtransaction $SPTX1
 
+   echo -e "Looking for $SPTX2"
+   callnode1 getrawtransaction $SPTX2
+   callnode3 getrawtransaction $SPTX2
+   
+   echo -e "Looking for $SPTX3"
+   callnode1 getrawtransaction $SPTX3
+   callnode3 getrawtransaction $SPTX3
+   
    echo -e "Feel free to stop here and inspect, old transactions in raw above are not part of the longest chain"
    sleep 30
 
