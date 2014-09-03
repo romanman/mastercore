@@ -93,6 +93,7 @@ callnode3() {
    
    echo -e "Generating tx..."
    RAWTX=$($PYTHONBIN $SCRIPTDIR/generateCS54.py 54 2 2 0 Foo Bar Bazz www.bazzcoin.info BazzyFoo "$ADDR1" "$PRIVKEY" "$CONNFILE" 1)
+   #RAWTX=$($PYTHONBIN $SCRIPTDIR/generateCS54.py 54 2 2 0 Foo Bar Bazz www.bazzcoin.info BazzyFoo "$ADDR1" "$PRIVKEY" "$CONNFILE" 0)
 
    echo -e "Sending Smart property... $RAWTX\n"
    SPTX1=$(callnode1 sendrawtransaction "$RAWTX")
@@ -103,9 +104,9 @@ callnode3() {
    callnode1 setgenerate true 1
    sleep 5
 
-   TX1=$(callnode1 send_MP $ADDR2 $ADDR1 1 25.00000000)
+   TX1=$(callnode1 send_MP $ADDR2 $ADDR1 1 "25.0")
    echo -e "Sending MSC from $ADDR2 to $ADDR1 to fund Crowdsale, $TX1\n"
- 
+
    echo -e "Committing transactions...\n"
    callnode1 setgenerate true 1
    sleep 5

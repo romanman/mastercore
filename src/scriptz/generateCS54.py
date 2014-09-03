@@ -37,14 +37,17 @@ listOptions = {
         "property_data": sys.argv[9],
         "transaction_from": sys.argv[10],
         "from_private_key": sys.argv[11],
-        "testnet": bool(sys.argv[13])
+        "testnet": bool(int(sys.argv[13]))
     }
 
 
-conndetails=open(sys.argv[12]).readline().split(':')
-
 #sort out whether using local or remote API
-conn = bitcoinrpc.connect_to_remote(conndetails[0],conndetails[1],host=conndetails[2],port=conndetails[3],use_https=int(conndetails[4]))
+try:
+    int(open(sys.argv[12]).readline()) == 0
+    conn = bitcoinrpc.connect_to_local()
+except:
+    conndetails=open(sys.argv[12]).readline().split(':')
+    conn = bitcoinrpc.connect_to_remote(conndetails[0],conndetails[1],host=conndetails[2],port=conndetails[3],use_https=int(conndetails[4]))
 
 if listOptions['testnet']:
     testnet =True
@@ -77,7 +80,7 @@ for unspent in unspent_tx:
    available_balance = unspent.amount + available_balance
 
 #check if minimum BTC balance is met
-if available_balance < Decimal(0.0006*3) and not force:
+if available_balance < Decimal(0.00006*3) and not force:
     print json.dumps({ "status": "NOT OK", "error": "Not enough funds" , "fix": "Set \'force\' flag to proceed without balance checks" })
     exit()
 
@@ -85,8 +88,8 @@ if available_balance < Decimal(0.0006*3) and not force:
 validated = conn.validateaddress(listOptions['transaction_from'])
 if 'pubkey' in validated.__dict__: 
     pubkey = validated.pubkey
-    if pubkey < 100:
-        print "Compressed Key, using hexspace 21"
+    if pubkey < 100 or testnet:
+        #print "Compressed Key, using hexspace 21"
         HEXSPACE_FIRST='21'
     else:
         HEXSPACE_FIRST='41'
@@ -129,23 +132,48 @@ prop_url_bytes = ''                                      # var bytes
 prop_data_bytes = ''                                     # var bytes
 
 for let in property_category:
-    prop_cat_bytes = prop_cat_bytes + hex(ord(let))[2:]
+    hex_bytes = hex(ord(let))[2:]
+    if len(hex_bytes) % 2 == 1:
+        hex_bytes = hex_bytes[:len(hex_bytes)-1]
+    if len(hex_bytes) > 255:
+        hex_bytes = hex_bytes[255:]
+    prop_cat_bytes = prop_cat_bytes + hex_bytes
 prop_cat_bytes = prop_cat_bytes + '00'
 
 for let in property_subcategory:
-    prop_subcat_bytes = prop_subcat_bytes + hex(ord(let))[2:]
+    hex_bytes = hex(ord(let))[2:]
+    if len(hex_bytes) % 2 == 1:
+        hex_bytes = hex_bytes[:len(hex_bytes)-1]
+    if len(hex_bytes) > 255:
+        hex_bytes = hex_bytes[255:]
+    prop_subcat_bytes = prop_subcat_bytes + hex_bytes
 prop_subcat_bytes = prop_subcat_bytes + '00'
 
 for let in property_name:
-    prop_name_bytes = prop_name_bytes + hex(ord(let))[2:]
+    hex_bytes = hex(ord(let))[2:]
+    if len(hex_bytes) % 2 == 1:
+        hex_bytes = hex_bytes[:len(hex_bytes)-1]
+    if len(hex_bytes) > 255:
+        hex_bytes = hex_bytes[255:]
+    prop_name_bytes = prop_name_bytes + hex_bytes
 prop_name_bytes = prop_name_bytes + '00'
 
 for let in property_url:
-    prop_url_bytes = prop_url_bytes + hex(ord(let))[2:]
+    hex_bytes = hex(ord(let))[2:]
+    if len(hex_bytes) % 2 == 1:
+        hex_bytes = hex_bytes[:len(hex_bytes)-1]
+    if len(hex_bytes) > 255:
+        hex_bytes = hex_bytes[255:]
+    prop_url_bytes = prop_url_bytes + hex_bytes
 prop_url_bytes = prop_url_bytes + '00'
 
 for let in property_data:
-    prop_data_bytes = prop_data_bytes + hex(ord(let))[2:]
+    hex_bytes = hex(ord(let))[2:]
+    if len(hex_bytes) % 2 == 1:
+        hex_bytes = hex_bytes[:len(hex_bytes)-1]
+    if len(hex_bytes) > 255:
+        hex_bytes = hex_bytes[255:]
+    prop_data_bytes = prop_data_bytes + hex_bytes
 prop_data_bytes = prop_data_bytes + '00'
 
 total_bytes = (len(tx_ver_bytes) + 
@@ -163,7 +191,7 @@ total_bytes = (len(tx_ver_bytes) +
 byte_stream = tx_ver_bytes + tx_type_bytes + eco_bytes + prop_type_bytes + prev_prop_id_bytes + prop_cat_bytes + prop_subcat_bytes + prop_name_bytes + prop_url_bytes + prop_data_bytes #+ num_prop_bytes
 
 #DEBUG
-print [tx_ver_bytes,tx_type_bytes,eco_bytes,prop_type_bytes,prev_prop_id_bytes,prop_cat_bytes,prop_subcat_bytes,prop_name_bytes,prop_url_bytes,prop_data_bytes]
+#print [tx_ver_bytes,tx_type_bytes,eco_bytes,prop_type_bytes,prev_prop_id_bytes,prop_cat_bytes,prop_subcat_bytes,prop_name_bytes,prop_url_bytes,prop_data_bytes]
 
 #DEBUG print [len(tx_ver_bytes)/2,len(tx_type_bytes)/2,len(eco_bytes)/2,len(prop_type_bytes)/2,len(prev_prop_id_bytes)/2,len(num_prop_bytes)/2,len(prop_cat_bytes)/2,len(prop_subcat_bytes)/2,len(prop_name_bytes)/2,len(prop_url_bytes)/2,len(prop_data_bytes)/2]
                                                                                                                              
