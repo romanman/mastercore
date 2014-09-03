@@ -103,7 +103,7 @@ callnode3() {
    callnode1 setgenerate true 1
    sleep 5
 
-   TX1=$(callnode1 send_MP $ADDR2 $ADDR1 1 25.00000000)
+   TX1=$(callnode1 send_MP $ADDR2 $ADDR1 1 25.0)
    echo -e "Sending MSC from $ADDR2 to $ADDR1 to fund Crowdsale, $TX1\n"
  
    echo -e "Committing transactions...\n"
