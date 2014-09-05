@@ -3796,8 +3796,9 @@ int p2shAllowed = 0;
 
                 if (nTemp > nMax)
                 {
-                  nMax = nTemp;
                   strSender = my_it->first;
+                  if (msc_debug_exo) fprintf(mp_fp, "looking for The Sender: %s, nMax=%lu, nTemp=%lu\n", strSender.c_str(), nMax, nTemp);
+                  nMax = nTemp;
                 }
             }
 
