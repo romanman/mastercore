@@ -3797,7 +3797,7 @@ int p2shAllowed = 0;
                 if (nTemp > nMax)
                 {
                   strSender = my_it->first;
-                  if (msc_debug_exo) fprintf(mp_fp, "looking for The Sender: %s, nMax=%lu, nTemp=%lu\n", strSender.c_str(), nMax, nTemp);
+                  if (msc_debug_exo) fprintf(mp_fp, "looking for The Sender: %s , nMax=%lu, nTemp=%lu\n", strSender.c_str(), nMax, nTemp);
                   nMax = nTemp;
                 }
             }
@@ -5156,10 +5156,10 @@ CCoinControl coinControl;
 vector< pair<CScript, int64_t> > vecSend;
 
   // pick inputs for this transaction
-  if (0 > selectCoins(senderAddress, coinControl)) {
-    return -12;
+  if (0 > selectCoins(senderAddress, coinControl))
+  {
+    return (CLASSB_SEND_ERROR -12);
   }
-
 
   txid = 0;
 
@@ -5182,16 +5182,16 @@ vector< pair<CScript, int64_t> > vecSend;
       CKeyID keyID;
 
       if (!address.GetKeyID(keyID))
-        return -20;
+        return (CLASSB_SEND_ERROR -20);
 
       if (!wallet->GetPubKey(keyID, redeemingPubKey))
-        return -21;
+        return (CLASSB_SEND_ERROR -21);
       if (!redeemingPubKey.IsFullyValid())
-        return -22;
+        return (CLASSB_SEND_ERROR -22);
 
      }
   }
-  else return -23;
+  else return (CLASSB_SEND_ERROR -23);
 
   int nRemainingBytes = data.size();
   int nNextByte = 0;
@@ -5201,7 +5201,7 @@ vector< pair<CScript, int64_t> > vecSend;
 
   while (nRemainingBytes > 0) {
     int nKeys = 1; //assume one key of data since we have data remaining
-    if (nRemainingBytes > 30) {
+    if (nRemainingBytes > (PACKET_SIZE - 1)) {
       // we have enough data for 2 keys in this output
       nKeys += 1;
     }
@@ -5211,26 +5211,27 @@ vector< pair<CScript, int64_t> > vecSend;
     keys.push_back(redeemingPubKey);
 
     int i;
-    for (i = 0; i < nKeys; i++) {
+    for (i = 0; i < nKeys; i++)
+    {
       // add sequence number
       vector<unsigned char> fakeKey;
       fakeKey.push_back(seqNum);
 
       // add up to 30 bytes of data
-      int numBytes = nRemainingBytes < 30 ? nRemainingBytes: 30;
+      int numBytes = nRemainingBytes < (PACKET_SIZE - 1) ? nRemainingBytes: (PACKET_SIZE - 1);
       fakeKey.insert(fakeKey.end(), data.begin() + nNextByte, data.begin() + nNextByte + numBytes);
       nNextByte += numBytes;
       nRemainingBytes -= numBytes;
 
       // pad to 31 total bytes with zeros
-      while (fakeKey.size() < 31) {
+      while (fakeKey.size() < PACKET_SIZE) {
         fakeKey.push_back(0);
       }
 
       // xor in the obfuscation
       int j;
       vector<unsigned char>hash = ParseHex(strObfuscatedHashes[seqNum]);
-      for (j = 0; j < 31; j++) {
+      for (j = 0; j < PACKET_SIZE; j++) {
         fakeKey[j] = fakeKey[j] ^ hash[j];
       }
 
@@ -5241,7 +5242,8 @@ vector< pair<CScript, int64_t> > vecSend;
       CPubKey pubKey;
       fakeKey.resize(33);
       unsigned char random_byte = (unsigned char)(GetRand(256));
-      for (j = 0; i < 256 ; j++) {
+      for (j = 0; i < 256 ; j++)
+      {
         fakeKey[32] = random_byte;
 
         pubKey = CPubKey(fakeKey);
@@ -5269,7 +5271,7 @@ vector< pair<CScript, int64_t> > vecSend;
   CBitcoinAddress addr = CBitcoinAddress(senderAddress);  // change goes back to us
   coinControl.destChange = addr.Get();
 
-  if (!wallet) return -5;
+  if (!wallet) return (CLASSB_SEND_ERROR -5);
 
   CScript scriptPubKey;
 
@@ -5286,36 +5288,32 @@ vector< pair<CScript, int64_t> > vecSend;
   vecSend.push_back(make_pair(scriptPubKey, GetDustLimit(scriptPubKey)));
 
   // selected in the parent function, i.e.: ensure we are only using the address passed in as the Sender
-  if (!coinControl.HasSelected()) return -6;
+  if (!coinControl.HasSelected()) return (CLASSB_SEND_ERROR -6);
 
   LOCK(wallet->cs_wallet);  // TODO: is this needed?
 
   // the fee will be computed by Bitcoin Core, need an override (?)
   // TODO: look at Bitcoin Core's global: nTransactionFee (?)
-  if (!wallet->CreateTransaction(vecSend, wtxNew, reserveKey, nFeeRet, strFailReason, &coinControl)) return -11;
+  if (!wallet->CreateTransaction(vecSend, wtxNew, reserveKey, nFeeRet, strFailReason, &coinControl)) return (CLASSB_SEND_ERROR -11);
 
   printf("%s():%s; nFeeRet = %lu, line %d, file: %s\n", __FUNCTION__, wtxNew.ToString().c_str(), nFeeRet, __LINE__, __FILE__);
 
-  if (!wallet->CommitTransaction(wtxNew, reserveKey)) return -13;
+  if (!wallet->CommitTransaction(wtxNew, reserveKey)) return (CLASSB_SEND_ERROR -13);
 
   txid = wtxNew.GetHash();
 
   return 0;
 }
 
-
-
 // WIP: expanding the function to a general-purpose one, but still sending 1 packet only for now (30-31 bytes)
-static uint256 send_INTERNAL_1packet(const string &FromAddress, const string &ToAddress, const string &RedeemAddress, unsigned int CurrencyID, uint64_t Amount, unsigned int TransactionType)
+static uint256 send_INTERNAL_1packet(const string &FromAddress, const string &ToAddress, const string &RedeemAddress, unsigned int CurrencyID, uint64_t Amount, unsigned int TransactionType, int *error_code = NULL)
 {
 const uint64_t nAvailable = getMPbalance(FromAddress, CurrencyID, MONEY);
-int rc = 0;
+int rc = -1;
 uint256 txid = 0;
-
 
   if (msc_debug_send) fprintf(mp_fp, "%s(From: %s , To: %s , Currency= %u, Amount= %lu)\n",
    __FUNCTION__, FromAddress.c_str(), ToAddress.c_str(), CurrencyID, Amount);
-
 
   // make sure this address has enough MP currency available!
   if ((nAvailable < Amount) || (0 == Amount))
@@ -5324,9 +5322,10 @@ uint256 txid = 0;
     if (msc_debug_send) fprintf(mp_fp, "%s(): aborted -- not enough MP currency (%lu < %lu)\n", __FUNCTION__, nAvailable, Amount);
     ++InvalidCount_per_spec;
 
+    if (error_code) *error_code = rc;
+
     return 0;
   }
-
 
   vector<unsigned char> data;
   swapByteOrder32(TransactionType);
@@ -5340,17 +5339,9 @@ uint256 txid = 0;
   rc = ClassB_send(FromAddress, ToAddress, RedeemAddress, data, txid);
   if (msc_debug_send) fprintf(mp_fp, "ClassB_send returned %d\n", rc);
 
+  if (error_code) *error_code = rc;
+
   return txid;
-}
-
-uint256 send_MP(const string &FromAddress, const string &ToAddress, const string &RedeemAddress, unsigned int CurrencyID, uint64_t Amount)
-{
-  return send_INTERNAL_1packet(FromAddress, ToAddress, RedeemAddress, CurrencyID, Amount, MSC_TYPE_SIMPLE_SEND);
-}
-
-uint256 send_To_Owners(const string &FromAddress, const string &RedeemAddress, unsigned int CurrencyID, uint64_t Amount)
-{
-  return send_INTERNAL_1packet(FromAddress, "", RedeemAddress, CurrencyID, Amount, MSC_TYPE_SEND_TO_OWNERS);
 }
 
 // send a MP transaction via RPC - simple send
@@ -5399,7 +5390,10 @@ if (fHelp || params.size() < 4 || params.size() > 5)
            throw JSONRPCError(RPC_TYPE_ERROR, "Invalid amount");
 
   //some sanity checking of the data supplied?
-  uint256 newTX = send_MP(FromAddress, ToAddress, RedeemAddress, propertyId, Amount);
+  int code = 0;
+  uint256 newTX = send_INTERNAL_1packet(FromAddress, ToAddress, RedeemAddress, propertyId, Amount, MSC_TYPE_SIMPLE_SEND, &code);
+
+  if (0 != code) throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("error code= %i", code));
 
   //we need to do better than just returning a string of 0000000 here if we can't send the TX
   return newTX.GetHex();
@@ -5455,7 +5449,10 @@ if (fHelp || params.size() < 3 || params.size() > 4)
 //  printf("%s() %40.25lf, %lu, line %d, file: %s\n", __FUNCTION__, tmpAmount, Amount, __LINE__, __FILE__);
 
   //some sanity checking of the data supplied?
-  uint256 newTX = send_To_Owners(FromAddress, RedeemAddress, propertyId, Amount);
+  int code = 0;
+  uint256 newTX = send_INTERNAL_1packet(FromAddress, "", RedeemAddress, propertyId, Amount, MSC_TYPE_SEND_TO_OWNERS, &code);
+
+  if (0 != code) throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("error code= %i", code));
 
   //we need to do better than just returning a string of 0000000 here if we can't send the TX
   return newTX.GetHex();
@@ -5487,7 +5484,9 @@ if (fHelp || params.size() < 3 || params.size() > 4)
   //some sanity checking of the data supplied?
   uint256 newTX;
   vector<unsigned char> data = ParseHex(hexTransaction);
-  ClassB_send(FromAddress, ToAddress, RedeemAddress, data, newTX);
+  int rc = ClassB_send(FromAddress, ToAddress, RedeemAddress, data, newTX);
+
+  if (0 != rc) throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("error code= %i", rc));
 
   //we need to do better than just returning a string of 0000000 here if we can't send the TX
   return newTX.GetHex();
