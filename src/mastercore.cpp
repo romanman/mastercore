@@ -2275,7 +2275,7 @@ public:
   uint64_t getAmount() const { return nValue; }
   uint64_t getNewAmount() const { return nNewValue; }
 
-  const string & getSPName() const {return name; }
+  string getSPName() const {return name; }
 
   void SetNull()
   {
@@ -5895,7 +5895,8 @@ Value gettransaction_MP(const Array& params, bool fHelp)
                                           amount = getTotalTokens(propertyId);
                                      break;
                                      case MSC_TYPE_CREATE_PROPERTY_VARIABLE:
-                                          if (0 == mp_obj.step2_Value())
+                                          int rc=0;
+                                          if (0 == mp_obj.step2_SmartProperty(&rc))
                                           {
                                                propertyId = _my_sps->findSPByTX(wtxid); // propertyId of created property (if valid)
                                                amount = 0; // crowdsale txs always create zero tokens
