@@ -2275,6 +2275,8 @@ public:
   uint64_t getAmount() const { return nValue; }
   uint64_t getNewAmount() const { return nNewValue; }
 
+  const string & getSPName() const {return name; }
+
   void SetNull()
   {
     currency = 0;
@@ -5796,6 +5798,7 @@ Value gettransaction_MP(const Array& params, bool fHelp)
                 int64_t issuerTokens = 0;
                 bool crowdDivisible = false;
                 string crowdName;
+                string propertyName;
 
                 if ((0 == blockHash) || (NULL == mapBlockIndex[blockHash]))
                         throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Exception: blockHash is 0");
@@ -5892,8 +5895,12 @@ Value gettransaction_MP(const Array& params, bool fHelp)
                                           amount = getTotalTokens(propertyId);
                                      break;
                                      case MSC_TYPE_CREATE_PROPERTY_VARIABLE:
-                                          propertyId = _my_sps->findSPByTX(wtxid); // propertyId of created property (if valid)
-                                          amount = 0; // crowdsale txs always create zero tokens
+                                          if (0 == mp_obj.step2_Value())
+                                          {
+                                               propertyId = _my_sps->findSPByTX(wtxid); // propertyId of created property (if valid)
+                                               amount = 0; // crowdsale txs always create zero tokens
+                                               propertyName = mp_obj.getSPName();
+                                          }
                                      break;
                                      case MSC_TYPE_SIMPLE_SEND:
                                           if (0 == mp_obj.step2_Value())
@@ -5984,6 +5991,7 @@ Value gettransaction_MP(const Array& params, bool fHelp)
                         txobj.push_back(Pair("blocktime", blockTime));
                         txobj.push_back(Pair("type", MPTxType));
                         txobj.push_back(Pair("propertyid", propertyId));
+                        if (MSC_TYPE_CREATE_PROPERTY_VARIABLE == MPTxTypeInt) txobj.push_back(Pair("propertyname", propertyName));
                         txobj.push_back(Pair("divisible", divisible));
                         if (divisible)
                         {
