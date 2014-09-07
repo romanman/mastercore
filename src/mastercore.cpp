@@ -1862,16 +1862,23 @@ int rc = METADEX_ERROR -8;
 // save info from the crowdsale that's being erased
 void dumpCrowdsaleInfo(const string &address, CMPCrowd &crowd, bool bExpired = false)
 {
-  boost::filesystem::path pathTempDead = GetTempPath() / "dead.log";
-  FILE *fp = fopen(pathTempDead.string().c_str(), "a");
+  boost::filesystem::path pathInfo = GetDataDir() / INFO_FILENAME;
+  FILE *fp = fopen(pathInfo.string().c_str(), "a");
 
+  if (!fp)
+  {
+    fprintf(mp_fp, "\nPROBLEM writing %s, errno= %d\n", INFO_FILENAME, errno);
+    return;
+  }
+
+  fprintf(fp, "\n%s\n", DateTimeStrFormat("%Y-%m-%d %H:%M:%S", GetTime()).c_str());
   fprintf(fp, "\nCrowdsale ended: %s\n", bExpired ? "Expired" : "Was closed");
+
   crowd.print(address, fp);
 
   fflush(fp);
   fclose(fp);
 }
-
 
 // calculates and returns fundraiser bonus, issuer premine, and total tokens
 // propType : divisible/indiv
@@ -2543,7 +2550,7 @@ public:
     return rc;
   }
 
-  int logicMath_SendToOwners()
+  int logicMath_SendToOwners(FILE *fp = NULL)
   {
   int rc = PKT_ERROR_STO -1000;
 
@@ -2602,7 +2609,9 @@ public:
       for(OwnerAddrType::reverse_iterator my_it = OwnerAddrSet.rbegin(); my_it != OwnerAddrSet.rend(); ++my_it)
       {
         n_owners++;
-        printf("#%ld: %lu = %s\n", n_owners, (my_it->first), (my_it->second).c_str());
+
+        // record the detailed info as needed
+        if (fp) fprintf(fp, "#%ld: %lu = %s\n", n_owners, (my_it->first), (my_it->second).c_str());
       }
 
       fprintf(mp_fp, "\t          Owners: %lu\n", n_owners);
@@ -2681,7 +2690,7 @@ public:
 
         if (sent_so_far >= nValue)
         {
-          printf("SendToOwners: DONE HERE : those who could get paid got paid, SOME DID NOT, but that's ok\n");
+          fprintf(mp_fp, "SendToOwners: DONE HERE : those who could get paid got paid, SOME DID NOT, but that's ok\n");
           break; // done here, everybody who could get paid got paid
         }
       }
@@ -2810,23 +2819,23 @@ https://github.com/mastercoin-MSC/spec/issues/170
   }
 
   int logicMath_GrantTokens() {
-    int rc = PKT_ERROR_SP - 1000;
+    int rc = PKT_ERROR_TOKENS - 1000;
 
     if (!isTransactionTypeAllowed(block, currency, type, version)) {
       fprintf(mp_fp, "\tRejecting Grant: Transaction type not yet allowed\n");
-      return (PKT_ERROR_SP - 22);
+      return (PKT_ERROR_TOKENS - 22);
     }
 
     if (sender.empty()) {
       ++InvalidCount_per_spec;
       fprintf(mp_fp, "\tRejecting Grant: Sender is empty\n");
-      return (PKT_ERROR_SP - 23);
+      return (PKT_ERROR_TOKENS - 23);
     }
 
     // manual issuance check
     if (false == _my_sps->hasSP(currency)) {
       fprintf(mp_fp, "\tRejecting Grant: SP id:%d does not exist\n", currency);
-      return (PKT_ERROR_SP - 24);
+      return (PKT_ERROR_TOKENS - 24);
     }
 
     CMPSPInfo::Entry sp;
@@ -2834,14 +2843,14 @@ https://github.com/mastercoin-MSC/spec/issues/170
 
     if (false == sp.manual) {
       fprintf(mp_fp, "\tRejecting Grant: SP id:%d was not issued with a TX 54\n", currency);
-      return (PKT_ERROR_SP - 25);
+      return (PKT_ERROR_TOKENS - 25);
     }
 
 
     // issuer check
     if (false == boost::iequals(sender, sp.issuer)) {
       fprintf(mp_fp, "\tRejecting Grant: %s is not the issuer of SP id:%d\n", sender.c_str(), currency);
-      return (PKT_ERROR_SP - 26);
+      return (PKT_ERROR_TOKENS - 26);
     }
 
     // overflow tokens check
@@ -2853,7 +2862,7 @@ https://github.com/mastercoin-MSC/spec/issues/170
         snprintf(prettyTokens, 256, "%lu", nValue);
       }
       fprintf(mp_fp, "\tRejecting Grant: granting %s tokens on SP id:%d would overflow the maximum limit for tokens in a smart property\n", prettyTokens, currency);
-      return (PKT_ERROR_SP - 27);
+      return (PKT_ERROR_TOKENS - 27);
     }
 
     // grant the tokens
@@ -2874,23 +2883,23 @@ https://github.com/mastercoin-MSC/spec/issues/170
   }
 
   int logicMath_RevokeTokens() {
-    int rc = PKT_ERROR_SP - 1000;
+    int rc = PKT_ERROR_TOKENS - 1000;
 
     if (!isTransactionTypeAllowed(block, currency, type, version)) {
       fprintf(mp_fp, "\tRejecting Revoke: Transaction type not yet allowed\n");
-      return (PKT_ERROR_SP - 22);
+      return (PKT_ERROR_TOKENS - 22);
     }
 
     if (sender.empty()) {
       ++InvalidCount_per_spec;
       fprintf(mp_fp, "\tRejecting Revoke: Sender is empty\n");
-      return (PKT_ERROR_SP - 23);
+      return (PKT_ERROR_TOKENS - 23);
     }
 
     // manual issuance check
     if (false == _my_sps->hasSP(currency)) {
       fprintf(mp_fp, "\tRejecting Revoke: SP id:%d does not exist\n", currency);
-      return (PKT_ERROR_SP - 24);
+      return (PKT_ERROR_TOKENS - 24);
     }
 
     CMPSPInfo::Entry sp;
@@ -2898,20 +2907,20 @@ https://github.com/mastercoin-MSC/spec/issues/170
 
     if (false == sp.manual) {
       fprintf(mp_fp, "\tRejecting Revoke: SP id:%d was not issued with a TX 54\n", currency);
-      return (PKT_ERROR_SP - 25);
+      return (PKT_ERROR_TOKENS - 25);
     }
 
 
     // issuer check
     if (false == boost::iequals(sender, sp.issuer)) {
       fprintf(mp_fp, "\tRejecting Revoke: %s is not the issuer of SP id:%d\n", sender.c_str(), currency);
-      return (PKT_ERROR_SP - 26);
+      return (PKT_ERROR_TOKENS - 26);
     }
 
     // insufficient funds check and revoke
     if (false == update_tally_map(sender, currency, -nValue, MONEY)) {
       fprintf(mp_fp, "\tRejecting Revoke: insufficient funds\n");
-      return (PKT_ERROR_SP - 111);
+      return (PKT_ERROR_TOKENS - 111);
     }
 
     // record this revoke
@@ -3152,7 +3161,15 @@ https://github.com/mastercoin-MSC/spec/issues/170
       step_rc = step2_Value();
       if (0>step_rc) return step_rc;
 
-      rc = logicMath_SendToOwners();
+      boost::filesystem::path pathOwners = GetDataDir() / OWNERS_FILENAME;
+      FILE *fp = fopen(pathOwners.string().c_str(), "a");
+
+      // TODO: write info line into the file, timestamp, block #, txid etc.........
+      // ...
+
+      rc = logicMath_SendToOwners(fp);
+
+      if (fp) fclose(fp);
     }
     break;
 
@@ -4839,6 +4856,8 @@ int mastercore_init()
 #else
   mp_fp = stdout;
 #endif
+
+  if (!mp_fp) mp_fp = stdout; // dump to terminal if file can't be opened
 
   fprintf(mp_fp, "\n%s MASTERCORE INIT, build date: " __DATE__ " " __TIME__ "\n\n", DateTimeStrFormat("%Y-%m-%d %H:%M:%S", GetTime()).c_str());
 

@@ -9,6 +9,9 @@
 #include "netbase.h"
 #include "protocol.h"
 
+#define INFO_FILENAME   "mastercore_crowdsales.log"
+#define OWNERS_FILENAME "mastercore_owners.log"
+
 int const MAX_STATE_HISTORY = 50;
 
 #define TEST_ECO_PROPERTY_1 (0x80000003UL)
@@ -114,6 +117,7 @@ enum FILETYPES {
 #define PKT_ERROR_TRADEOFFER  (-70000)
 #define PKT_ERROR_METADEX     (-80000)
 #define METADEX_ERROR         (-81000)
+#define PKT_ERROR_TOKENS      (-82000)
 
 #define CLASSB_SEND_ERROR     (-200)
 
