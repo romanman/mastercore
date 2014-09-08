@@ -7288,18 +7288,23 @@ Value getgrants_MP(const Array& params, bool fHelp)
 
 Value listblocktransactions_MP(const Array& params, bool fHelp)
 {
-   if (fHelp)
+   if (fHelp || params.size() != 1)
         throw runtime_error(
-            "listblocktransactions_MP\n"
-            "\nList MP TXIDs in a block\n"
+            "listblocktransactions_MP index\n"
+            "\nReturns all Master Protocol transactions in a block.\n"
+            
+            "\nArguments:\n"
+            "1. index         (numeric, required) The block height or index\n"
+            
             "\nResult:\n"
-            "{\n"
-            "  \"txid\" : \"txid\",     (string) MP txid\n"
-            "}\n"
+            "[                (array of string)\n"
+            "  \"hash\"         (string) Transaction id\n"            
+            "  ,...\n"
+            "]\n"
 
-            "\nbExamples\n"
-            + HelpExampleCli("listblocktransactions_MP", "")
-            + HelpExampleRpc("listblocktransactions_MP", "")
+            "\nExamples\n"
+            + HelpExampleCli("listblocktransactions_MP", "279007")
+            + HelpExampleRpc("listblocktransactions_MP", "279007")
         );
 
   // firstly let's get the block height given in the param
@@ -7330,7 +7335,7 @@ Value listblocktransactions_MP(const Array& params, bool fHelp)
             response.push_back(tx.GetHash().GetHex());
        }
   }
-return response;
+  return response;
 }
 
 Value getactivedexsells_MP(const Array& params, bool fHelp)
