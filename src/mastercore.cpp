@@ -5087,9 +5087,7 @@ int64_t GetDustLimit(const CScript& scriptPubKey)
     // it's outputs. The minimum relay fee is defined per 1000 byte.
     int64_t nDustLimit = 1 + (((nSize * nRelayTxFee * 3) - 1) / 1000);
 
-    return (std::max(888L, nDustLimit));  // TODO: remove 888 once parser concerns from these comments are resolved: https://github.com/mastercoin-MSC/mastercore/pull/110
-  
-//    return nDustLimit;
+    return nDustLimit;
 }
 
 static int selectCoins(const string &FromAddress, CCoinControl &coinControl) {
