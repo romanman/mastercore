@@ -5997,6 +5997,10 @@ Value gettransaction_MP(const Array& params, bool fHelp)
                                           propertyId = _my_sps->findSPByTX(wtxid); // propertyId of created property (if valid)
                                           amount = 0; // crowdsale txs always create zero tokens
                                      break;
+                                     case MSC_TYPE_CREATE_PROPERTY_MANUAL:
+                                          propertyId = _my_sps->findSPByTX(wtxid); // propertyId of created property (if valid)
+                                          amount = 0; // issuance of a managed token does not create tokens
+                                     break;
                                      case MSC_TYPE_SIMPLE_SEND:
                                           if (0 == mp_obj.step2_Value())
                                           {
@@ -6236,6 +6240,10 @@ string sAddress = "";
                                      case MSC_TYPE_CREATE_PROPERTY_VARIABLE:
                                           propertyId = _my_sps->findSPByTX(wtxid); // propertyId of created property (if valid)
                                           amount = 0; // crowdsale txs always create zero tokens
+                                     break;
+                                     case MSC_TYPE_CREATE_PROPERTY_MANUAL:
+                                          propertyId = _my_sps->findSPByTX(wtxid); // propertyId of created property (if valid)
+                                          amount = 0; // issuance of a managed token does not create tokens
                                      break;
                                      case MSC_TYPE_SIMPLE_SEND:
                                           if (0 == mp_obj.step2_Value())
@@ -6477,6 +6485,10 @@ bool addressFilter;
                                      case MSC_TYPE_CREATE_PROPERTY_VARIABLE:
                                           propertyId = _my_sps->findSPByTX(wtxid); // propertyId of created property (if valid)
                                           amount = 0; // crowdsale txs always create zero tokens
+                                     break;
+                                     case MSC_TYPE_CREATE_PROPERTY_MANUAL:
+                                          propertyId = _my_sps->findSPByTX(wtxid); // propertyId of created property (if valid)
+                                          amount = 0; // issuance of a managed token does not create tokens
                                      break;
                                      case MSC_TYPE_SIMPLE_SEND:
                                           if (0 == mp_obj.step2_Value())
