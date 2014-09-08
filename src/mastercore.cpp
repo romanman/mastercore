@@ -5468,20 +5468,20 @@ if (fHelp || params.size() < 3 || params.size() > 4)
             "\nCreates and broadcasts a simple send for a given amount and currency/property ID.\n"
             "\nParameters:\n"
             "FromAddress   : the address to send from\n"
+            "RawTX         : the hex-encoded raw transaction\n"
             "ToAddress     : the address to send to.  This should be empty: (\"\") for transaction\n"
             "                types that do not use a reference/to address\n"
-            "RawTX         : the hex-encoded raw transaction\n"
             "RedeemAddress : (optional) the address that can redeem the bitcoin outputs. Defaults to FromAddress\n"
             "\nResult:\n"
             "txid    (string) The transaction ID of the sent transaction\n"
             "\nExamples:\n"
-            ">mastercored sendrawtx_MP 1FromAddress 1ToAddress <tx bytes hex> 1RedeemAddress\n"
+            ">mastercored sendrawtx_MP 1FromAddress <tx bytes hex> 1ToAddress 1RedeemAddress\n"
         );
 
   std::string FromAddress = (params[0].get_str());
-  std::string ToAddress = (params[1].get_str());
-  std::string hexTransaction = (params[2].get_str());
-  std::string RedeemAddress = (params.size() > 4) ? (params[4].get_str()): "";
+  std::string hexTransaction = (params[1].get_str());
+  std::string ToAddress = (params.size() > 2) ? (params[2].get_str()): "";
+  std::string RedeemAddress = (params.size() > 3) ? (params[3].get_str()): "";
 
   //some sanity checking of the data supplied?
   uint256 newTX;
