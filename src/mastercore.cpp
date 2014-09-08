@@ -73,9 +73,6 @@ using namespace leveldb;
 static const int nBlockTop = 0;
 // static const int nBlockTop = 271000;
 
-//current scanning blockheight
-int block = 0;
-
 int nWaterlineBlock = 0;  //
 
 // uint64_t global_MSC_total = 0;
@@ -152,12 +149,6 @@ static int GetHeight()
   return chainActive.Height();
 }
 
-static int64_t GetBlockTime(int height)
-{
-  LOCK(cs_main);
-  int64_t bTime = chainActive.Tip() ? chainActive[ height ]->GetBlockTime() : -1;
-  return bTime; 
-}
 // indicate whether persistence is enabled at this point, or not
 // used to write/read files, for breakout mode, debugging, etc.
 static bool readPersistence()
@@ -613,6 +604,7 @@ public:
 
     //We need this. Closedearly states if the SP was a crowdsale and closed due to MAXTOKENS or CLOSE command
     bool close_early;
+    bool max_tokens;
     uint64_t timeclosed;
     uint256 txid_close;
 
@@ -640,6 +632,7 @@ public:
     , early_bird(0)
     , percentage(0)
     , close_early(0)
+    , max_tokens(0)
     , timeclosed(0)
     , txid_close()
     , txid()
@@ -669,6 +662,7 @@ public:
         spInfo.push_back(Pair("percentage", (int)percentage));
 
         spInfo.push_back(Pair("close_early", (int)close_early));
+        spInfo.push_back(Pair("max_tokens", (int)max_tokens));
         spInfo.push_back(Pair("timeclosed", (boost::format("%d") % timeclosed).str()));
         spInfo.push_back(Pair("txid_close", (boost::format("%s") % txid_close.ToString()).str()));
       }
@@ -733,6 +727,7 @@ public:
         percentage = (unsigned char)json[idx++].value_.get_int();
 
         close_early = (unsigned char)json[idx++].value_.get_int();
+        max_tokens = (unsigned char)json[idx++].value_.get_int();
         timeclosed = boost::lexical_cast<uint64_t>(json[idx++].value_.get_str());
         txid_close = uint256(json[idx++].value_.get_str());
       }
@@ -1969,7 +1964,7 @@ int calculateFractional(unsigned short int propType, unsigned char bonusPerc, ui
   return missedTokens;
 }
 
-void eraseMaxedCrowdsale(const string &address)
+void eraseMaxedCrowdsale(const string &address, uint64_t blockTime)
 {
     CrowdMap::iterator it = my_crowds.find(address);
     
@@ -1988,7 +1983,8 @@ void eraseMaxedCrowdsale(const string &address)
       //get txdata
       sp.historicalData = crowd.getDatabase();
       sp.close_early = 1;
-      sp.timeclosed = GetBlockTime(block);
+      sp.max_tokens = 1;
+      sp.timeclosed = blockTime;
       
       //update SP with this data
       _my_sps->updateSP(crowd.getPropertyId() , sp);
@@ -2433,7 +2429,7 @@ public:
 
             // close crowdsale if we hit MAX_TOKENS
             if( close_crowdsale ) {
-              eraseMaxedCrowdsale(receiver);
+              eraseMaxedCrowdsale(receiver, blockTime);
             }
           }
         }
@@ -3119,7 +3115,7 @@ https://github.com/mastercoin-MSC/spec/issues/170
         
         sp.historicalData = crowd.getDatabase();
         sp.close_early = 1;
-        sp.timeclosed = GetBlockTime(block);
+        sp.timeclosed = blockTime;
         sp.txid_close = txid;
 
         _my_sps->updateSP(crowd.getPropertyId() , sp);
@@ -5011,9 +5007,6 @@ int mastercore_shutdown()
 // this is called for every new transaction that comes in (actually in block parsing loop)
 int mastercore_handler_tx(const CTransaction &tx, int nBlock, unsigned int idx, CBlockIndex const * pBlockIndex)
 {
-  //set global
-  block = nBlock;
-  
   if (!mastercoreInitialized) {
     mastercore_init();
   }
@@ -7014,6 +7007,7 @@ Value getcrowdsale_MP(const Array& params, bool fHelp)
     int8_t earlyBonus = sp.early_bird;
     int8_t percentToIssuer = sp.percentage;
     bool closeEarly = sp.close_early;
+    bool maxTokens = sp.max_tokens;
     int64_t timeClosed = sp.timeclosed;
     string txidClosed = sp.txid_close.GetHex();
     string issuer = sp.issuer;
@@ -7130,8 +7124,9 @@ Value getcrowdsale_MP(const Array& params, bool fHelp)
         response.push_back(Pair("tokensissued", FormatIndivisibleMP(tokensIssued)));
     }
     if (!active) response.push_back(Pair("closedearly", closeEarly));
+    if (!active) response.push_back(Pair("maxtokens", maxTokens));
     if (closeEarly) response.push_back(Pair("endedtime", timeClosed));
-    if (closeEarly) response.push_back(Pair("closetx", txidClosed));
+    if (closeEarly && !maxTokens) response.push_back(Pair("closetx", txidClosed));
     
     // array of txids contributing to crowdsale here if needed
     if (showVerbose)
