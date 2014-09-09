@@ -5992,8 +5992,13 @@ Value gettransaction_MP(const Array& params, bool fHelp)
                                 switch (MPTxTypeInt)
                                 {
                                      case MSC_TYPE_CREATE_PROPERTY_FIXED:
-                                          propertyId = _my_sps->findSPByTX(wtxid); // propertyId of created property (if valid)
-                                          amount = getTotalTokens(propertyId);
+                                          mp_obj.step2_SmartProperty(rc);
+                                          if (0 == rc)
+                                          {
+                                              propertyId = _my_sps->findSPByTX(wtxid); // propertyId of created property (if valid)
+                                              amount = getTotalTokens(propertyId);
+                                              propertyName = mp_obj.getSPName();
+                                          }
                                      break;
                                      case MSC_TYPE_CREATE_PROPERTY_VARIABLE:
                                           mp_obj.step2_SmartProperty(rc);
