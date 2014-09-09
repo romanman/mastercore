@@ -73,7 +73,7 @@ using namespace leveldb;
 static const int nBlockTop = 0;
 // static const int nBlockTop = 271000;
 
-int nWaterlineBlock = 0;  //
+static int nWaterlineBlock = 0;  //
 
 // uint64_t global_MSC_total = 0;
 // uint64_t global_MSC_RESERVED_total = 0;
@@ -2305,7 +2305,7 @@ public:
   uint64_t getAmount() const { return nValue; }
   uint64_t getNewAmount() const { return nNewValue; }
 
-  string getSPName() const { return boost::lexical_cast<string>(name); }
+  string getSPName() const { return string(name); }
 
   void SetNull()
   {
