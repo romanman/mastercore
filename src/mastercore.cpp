@@ -6098,7 +6098,7 @@ Value gettransaction_MP(const Array& params, bool fHelp)
                         txobj.push_back(Pair("blocktime", blockTime));
                         txobj.push_back(Pair("type", MPTxType));
                         txobj.push_back(Pair("propertyid", propertyId));
-                        if (MSC_TYPE_CREATE_PROPERTY_VARIABLE == MPTxTypeInt) txobj.push_back(Pair("propertyname", propertyName));
+                        if ((MSC_TYPE_CREATE_PROPERTY_VARIABLE == MPTxTypeInt) || (MSC_TYPE_CREATE_PROPERTY_FIXED == MPTxTypeInt)) txobj.push_back(Pair("propertyname", propertyName));
                         txobj.push_back(Pair("divisible", divisible));
                         if (divisible)
                         {
