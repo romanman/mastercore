@@ -8,6 +8,10 @@ As all existing Bitcoin Core functionality is inherent to Master Core, the RPC p
 
 *Caution: This document is a work in progress and is subject to change at any time.  There may be errors, omissions or inaccuracies present.*
 
+*Note: As of release 0.0.7, all floating point values are taken in and output as strings. This is to preserve precision when dealing with large numbers. Integer fields typically will stay in integer amounts. The fields generally affected by this change will be the "amount" field.
+
+In addition to this change, 0.0.6 "reserved" amounts are no longer split into two reserved fields, accept and sell, but into one complete "reserved" field, in 0.0.7. 
+
 ###Broadcasting a Simple Send transaction
 Simple send allows a Master Protocol currency to be transferred from address to address in a one-to-one transaction.  Simple send transactions are exposed via the **send_MP** RPC call.
 
@@ -15,18 +19,18 @@ Simple send allows a Master Protocol currency to be transferred from address to 
 - **_sender address (string):_** A valid bitcoin address containing a sufficient balance to support the transaction
 - **_recipient address (string):_** A valid bitcoin address - the receiving party of the transaction
 - **_currency/property ID (integer):_** A valid Master Protocol currency/property ID
-- **_amount (float):_** The amount to transfer (note if sending individisble tokens any decimals will be truncated)
+- **_amount (string):_** The amount to transfer (note if sending individisble tokens any decimals will be truncated)
    
 **Additional Optional Parameters**
-- There are currently no supported optional parameters for this call.
+- **_redeem address (string):_** The address that can redeem the bitcoin/multisig outputs. Defaults to FromAddress, required to redeem MP transactions created with P2SH.
 
 **Examples**
 ```
-$src/mastercored send_MP myN6HXmFhmMRo1bzfNXBDxTALYsh3EjXxk mvKKTXj8Z1GVwjN1Ejw8yx6n7pBujdXG2Q 1 1.234
+$src/mastercored send_MP myN6HXmFhmMRo1bzfNXBDxTALYsh3EjXxk mvKKTXj8Z1GVwjN1Ejw8yx6n7pBujdXG2Q 1 "1.234"
 d300bb52c099c664459a75908255c8ec6a58575ac8efb07080bd81d8e6c9af40
 ```
 ```
-{"jsonrpc":"1.0","id":"1","method":"send_MP","params":["myN6HXmFhmMRo1bzfNXBDxTALYsh3EjXxk","mvKKTXj8Z1GVwjN1Ejw8yx6n7pBujdXG2Q",1,1.234]}
+{"jsonrpc":"1.0","id":"1","method":"send_MP","params":["myN6HXmFhmMRo1bzfNXBDxTALYsh3EjXxk","mvKKTXj8Z1GVwjN1Ejw8yx6n7pBujdXG2Q",1,"1.234"]}
 {"result":"d300bb52c099c664459a75908255c8ec6a58575ac8efb07080bd81d8e6c9af40","error":null,"id":"1"}
 ```
 *Please note, the private key for the requested sender address must be available in the wallet.*
@@ -66,20 +70,19 @@ $src/mastercored getallbalancesforaddress_MP 1MCHESTptvd2LnNp7wmr2sGTpRomteAkq8
 [
     {
         "propertyid" : 1,
-        "balance" : 0.05721789,
-        "reservedbyoffer" : 0.00000000,
-        "reservedbyaccept" : 0.00000000
+        "balance" : "0.05721789",
+        "reserved" : "0.00000000"
     },
     {
         "propertyid" : 2147483651,
-        "balance" : 31279045,
-        "reservedbyoffer" : 0
+        "balance" : "31279045",
+        "reserved" : "0"
     }
 ]
 ```
 ```
 {"jsonrpc":"1.0","id":"1","method":"getallbalancesforaddress_MP","params":["1MCHESTptvd2LnNp7wmr2sGTpRomteAkq8"]}
-{"result":[{"propertyid":1,"balance":0.05721789,"reservedbyoffer":0.00000000,"reservedbyaccept":0.00000000},{"propertyid":2147483651,"balance":31279045,"reservedbyoffer":0}],"error":null,"id":"1"}
+{"result":[{"propertyid":1,"balance":"0.05721789","reserved":"0.00000000"},{"propertyid":2147483651,"balance":"31279045","reserved":"0"}],"error":null,"id":"1"}
 ```
 
 ###Obtaining all Master Protocol balances for a property ID
@@ -97,24 +100,24 @@ $src/mastercored getallbalancesforid_MP 2147483652
 [
     {
         "address" : "1EqTta1Rt8ixAA32DuC29oukbsSWU62qAV",
-        "balance" : 3214,
-        "reservedbyoffer" : 0
+        "balance" : "3214",
+        "reserved" : "0"
     },
     {
         "address" : "1MCHESTbJhJK27Ygqj4qKkx4Z4ZxhnP826",
-        "balance" : 11,
-        "reservedbyoffer" : 0
+        "balance" : "11",
+        "reserved" : "0"
     },
     {
         "address" : "1MCHESTxYkPSLoJ57WBQot7vz3xkNahkcb",
-        "balance" : 149,
-        "reservedbyoffer" : 0
+        "balance" : "149",
+        "reserved" : "0"
     }
 ]
 ```
 ```
 {"jsonrpc":"1.0","id":"1","method":"getallbalancesforid_MP","params":[2147483652]}
-{"result":[{"address":"1EqTta1Rt8ixAA32DuC29oukbsSWU62qAV","balance":3214,"reservedbyoffer":0},{"address":"1MCHESTbJhJK27Ygqj4qKkx4Z4ZxhnP826","balance":11,"reservedbyoffer":0},{"address":"1MCHESTxYkPSLoJ57WBQot7vz3xkNahkcb","balance":149,"reservedbyoffer":0}],"error":null,"id":"1"}
+{"result":[{"address":"1EqTta1Rt8ixAA32DuC29oukbsSWU62qAV","balance":"3214","reserved":"0"},{"address":"1MCHESTbJhJK27Ygqj4qKkx4Z4ZxhnP826","balance":"11","reserved":"0"},{"address":"1MCHESTxYkPSLoJ57WBQot7vz3xkNahkcb","balance":"149","reserved":"0"}],"error":null,"id":"1"}
 ```
 
 ###Retrieving a Master Protocol Transaction
@@ -135,19 +138,19 @@ $src/mastercored gettransaction_MP d2907fe2c716fc6d510d63b52557907445c784cb2e8ae
     "referenceaddress" : "mhgrKJ3WyX1RMYiUpgA3M3iF48zSeSRkri",
     "direction" : "out",
     "confirmations" : 884,
-    "fee" : 0.00010000,
+    "fee" : "0.00010000",
     "blocktime" : 1403298479,
     "blockindex" : 49,
     "type" : "Simple Send",
     "currency" : 1,
     "divisible" : true,
-    "amount" : 50.00000000,
+    "amount" : "50.00000000",
     "valid" : true
 }
 ```
 ```
 {"jsonrpc":"1.0","id":"1","method":"gettransaction_MP","params":["d2907fe2c716fc6d510d63b52557907445c784cb2e8ae6ea9ef61e909c978cd7"]}
-{"result":{"txid":"d2907fe2c716fc6d510d63b52557907445c784cb2e8ae6ea9ef61e909c978cd7","sendingaddress":"myN6HXmFhmMRo1bzfNXBDxTALYsh3EjXxk","referenceaddress":"mhgrKJ3WyX1RMYiUpgA3M3iF48zSeSRkri","direction":"out","confirmations":884,"fee":0.00010000,"blocktime":1403298479,"blockindex":49,"type":"Simple Send","currency":1,"divisible":true,"amount":50.00000000,"valid":true},"error":null,"id":"1"}
+{"result":{"txid":"d2907fe2c716fc6d510d63b52557907445c784cb2e8ae6ea9ef61e909c978cd7","sendingaddress":"myN6HXmFhmMRo1bzfNXBDxTALYsh3EjXxk","referenceaddress":"mhgrKJ3WyX1RMYiUpgA3M3iF48zSeSRkri","direction":"out","confirmations":884,"fee":"0.00010000","blocktime":1403298479,"blockindex":49,"type":"Simple Send","currency":1,"divisible":true,"amount":"50.00000000","valid":true},"error":null,"id":"1"}
 ```
 
 ###Listing Historical Transactions
@@ -232,7 +235,7 @@ $src/mastercored searchtransactions_MP mtGfANEnFsniGzWDt87kQg4zJunoQbT6f3
         "type" : "Simple Send",
         "currency" : 1,
         "divisible" : true,
-        "amount" : 123456.00000000,
+        "amount" : "123456.00000000",
         "valid" : true
     },
     {
@@ -246,7 +249,7 @@ $src/mastercored searchtransactions_MP mtGfANEnFsniGzWDt87kQg4zJunoQbT6f3
         "type" : "Simple Send",
         "currency" : 1,
         "divisible" : true,
-        "amount" : 222.00000000,
+        "amount" : "222.00000000",
         "valid" : true
     },
     {
@@ -267,7 +270,7 @@ $src/mastercored searchtransactions_MP mtGfANEnFsniGzWDt87kQg4zJunoQbT6f3
 ```
 ```
 {"jsonrpc":"1.0","id":"1","method":"searchransactions_MP","params":["mtGfANEnFsniGzWDt87kQg4zJunoQbT6f3"]}
-{"result":[{"txid":"fda128e34edc48426ca930df6167e4560cef9cda2192e37be69c965e9c5dd9d1","sendingaddress":"mscsir9qKUYry5SqaW19T7fTriDw2BzYvD","referenceaddress":"mtGfANEnFsniGzWDt87kQg4zJunoQbT6f3","direction":"in","confirmations":1457,"blocktime":1403126898,"blockindex":7,"type":"Simple Send","currency":1,"divisible":true,"amount":123456.00000000,"valid":true},{"txid":"33e4ea9a43102f9ad43b086d2bcf9478c67b5a1e64ce7dfc64bfe3f94b7f9222","sendingaddress":"mscsir9qKUYry5SqaW19T7fTriDw2BzYvD","referenceaddress":"mtGfANEnFsniGzWDt87kQg4zJunoQbT6f3","direction":"in","confirmations":1454,"blocktime":1403129492,"blockindex":4,"type":"Simple Send","currency":1,"divisible":true,"amount":222.00000000,"valid":true},{"txid":"c93a8622b6784b4cd5e109bea423553ed729b675965b6820837f80513be04852","sendingaddress":"myN6HXmFhmMRo1bzfNXBDxTALYsh3EjXxk","referenceaddress":"mtGfANEnFsniGzWDt87kQg4zJunoQbT6f3","direction":"out","confirmations":906,"blocktime":1403293908,"blockindex":2,"type":"Simple Send","currency":1,"divisible":true,"amount":50.12340000,"valid":true}],"error":null,"id":"1"}
+{"result":[{"txid":"fda128e34edc48426ca930df6167e4560cef9cda2192e37be69c965e9c5dd9d1","sendingaddress":"mscsir9qKUYry5SqaW19T7fTriDw2BzYvD","referenceaddress":"mtGfANEnFsniGzWDt87kQg4zJunoQbT6f3","direction":"in","confirmations":1457,"blocktime":1403126898,"blockindex":7,"type":"Simple Send","currency":1,"divisible":true,"amount":"123456.00000000","valid":true},{"txid":"33e4ea9a43102f9ad43b086d2bcf9478c67b5a1e64ce7dfc64bfe3f94b7f9222","sendingaddress":"mscsir9qKUYry5SqaW19T7fTriDw2BzYvD","referenceaddress":"mtGfANEnFsniGzWDt87kQg4zJunoQbT6f3","direction":"in","confirmations":1454,"blocktime":1403129492,"blockindex":4,"type":"Simple Send","currency":1,"divisible":true,"amount":"222.00000000","valid":true},{"txid":"c93a8622b6784b4cd5e109bea423553ed729b675965b6820837f80513be04852","sendingaddress":"myN6HXmFhmMRo1bzfNXBDxTALYsh3EjXxk","referenceaddress":"mtGfANEnFsniGzWDt87kQg4zJunoQbT6f3","direction":"out","confirmations":906,"blocktime":1403293908,"blockindex":2,"type":"Simple Send","currency":1,"divisible":true,"amount":"50.12340000","valid":true}],"error":null,"id":"1"}
 ```
 *Please note, searchttransactions_MP currently supports transactions available in the wallet only.*
 
@@ -293,12 +296,12 @@ $src/mastercored getproperty_MP 3
     "issuer" : "1ARjWDkZ7kT9fwjPrjcQyvbXDkEySzKHwu",
     "creationtxid" : "86f214055a7f4f5057922fd1647e00ef31ab0a3ff15217f8b90e295f051873a7",
     "fixedissuance" : false,
-    "totaltokens" : 452552412
+    "totaltokens" : "452552412"
 }
 ```
 ```
 {"jsonrpc":"1.0","id":"1","method":"getproperty_MP","params":[3]}
-{"result":{"name":"MaidSafeCoin","category":"Crowdsale","subcategory":"MaidSafe","data":"SAFE Network Crowdsale (MSAFE)","url":"www.buysafecoins.com","divisible":false,"issuer":"1ARjWDkZ7kT9fwjPrjcQyvbXDkEySzKHwu","creationtxid":"86f214055a7f4f5057922fd1647e00ef31ab0a3ff15217f8b90e295f051873a7","fixedissuance":false,"totaltokens":452552412},"error":null,"id":"1"}
+{"result":{"name":"MaidSafeCoin","category":"Crowdsale","subcategory":"MaidSafe","data":"SAFE Network Crowdsale (MSAFE)","url":"www.buysafecoins.com","divisible":false,"issuer":"1ARjWDkZ7kT9fwjPrjcQyvbXDkEySzKHwu","creationtxid":"86f214055a7f4f5057922fd1647e00ef31ab0a3ff15217f8b90e295f051873a7","fixedissuance":false,"totaltokens":"452552412"},"error":null,"id":"1"}
 ```
 
 ###Listing Master Protocol properties
@@ -375,56 +378,57 @@ $src/mastercored getcrowdsale_MP 2147483657 true
     "active" : true,
     "issuer" : "1DYb5Njvcgovt9gUMdMgYkpaQjAEdUooon",
     "propertyiddesired" : 2,
-    "tokensperunit" : 0.00001000,
+    "tokensperunit" : "0.00001000",
     "earlybonus" : 0,
     "percenttoissuer" : 0,
     "starttime" : 1397243096,
     "deadline" : 1649030400,
-    "amountraised" : 32.29930502,
-    "tokensissued" : 0.00032299,
+    "amountraised" : "32.29930502",
+    "tokensissued" : "0.00032299",
+    "closedearly"  : false,
     "participanttransactions" : [
         {
             "txid" : "139e476fb34921f7cad834a2868dc4a734cd03a1e6b0a5eb03164e228e28e30d",
-            "amountsent" : 1.29900000,
-            "participanttokens" : 0.00001299,
-            "issuertokens" : 0.00000000
+            "amountsent" : "1.29900000",
+            "participanttokens" : "0.00001299",
+            "issuertokens" : "0.00000000"
         },
         {
             "txid" : "3995f9ff3400ef7274b2224e2f584261a70763ed0d03a5e125438cb46771f80d",
-            "amountsent" : 0.00030000,
-            "participanttokens" : 0.00000000,
-            "issuertokens" : 0.00000000
+            "amountsent" : "0.00030000",
+            "participanttokens" : "0.00000000",
+            "issuertokens" : "0.00000000"
         },
         {
             "txid" : "5136b5a2036d66beb0f0f260aabba09b8e0d64a8913bc49aad79f8fe43c04ba5",
-            "amountsent" : 0.00000001,
-            "participanttokens" : 0.00000000,
-            "issuertokens" : 0.00000000
+            "amountsent" : "0.00000001",
+            "participanttokens" : "0.00000000",
+            "issuertokens" : "0.00000000"
         },
         {
             "txid" : "72532216c9f43ce11a410b82f431fbf0613abef819f7ac58054396db81c8b38d",
-            "amountsent" : 1.00000000,
-            "participanttokens" : 0.00001000,
-            "issuertokens" : 0.00000000
+            "amountsent" : "1.00000000",
+            "participanttokens" : "0.00001000",
+            "issuertokens" : "0.00000000"
         },
         {
             "txid" : "85b1d028aee21f68f65f778341b4aca7e2921858acb14c2b2299e69a0307dab2",
-            "amountsent" : 30.00000000,
-            "participanttokens" : 0.00030000,
-            "issuertokens" : 0.00000000
+            "amountsent" : "30.00000000",
+            "participanttokens" : "0.00030000",
+            "issuertokens" : "0.00000000"
         },
         {
             "txid" : "d90e89d1a5487d0abaebb70d3baeec6eafb8b62380f639d999bd3f3d6a4433f8",
-            "amountsent" : 0.00000501,
-            "participanttokens" : 0.00000000,
-            "issuertokens" : 0.00000000
+            "amountsent" : "0.00000501",
+            "participanttokens" : "0.00000000",
+            "issuertokens" : "0.00000000"
         }
     ]
 }
 ```
 ```
 {"jsonrpc":"1.0","id":"1","method":"getcrowdsale_MP","params":[2147483657,true]}
-{"result":{"name":"Fundraiser 3 Div","active":true,"issuer":"1DYb5Njvcgovt9gUMdMgYkpaQjAEdUooon","propertyiddesired":2,"tokensperunit":0.00001000,"earlybonus":0,"percenttoissuer":0,"starttime":1397243096,"deadline":1649030400,"amountraised":32.29930502,"tokensissued":0.00032299,"participanttransactions":[{"txid":"139e476fb34921f7cad834a2868dc4a734cd03a1e6b0a5eb03164e228e28e30d","amountsent":1.29900000,"participanttokens":0.00001299,"issuertokens":0.00000000},{"txid":"3995f9ff3400ef7274b2224e2f584261a70763ed0d03a5e125438cb46771f80d","amountsent":0.00030000,"participanttokens":0.00000000,"issuertokens":0.00000000},{"txid":"5136b5a2036d66beb0f0f260aabba09b8e0d64a8913bc49aad79f8fe43c04ba5","amountsent":0.00000001,"participanttokens":0.00000000,"issuertokens":0.00000000},{"txid":"72532216c9f43ce11a410b82f431fbf0613abef819f7ac58054396db81c8b38d","amountsent":1.00000000,"participanttokens":0.00001000,"issuertokens":0.00000000},{"txid":"85b1d028aee21f68f65f778341b4aca7e2921858acb14c2b2299e69a0307dab2","amountsent":30.00000000,"participanttokens":0.00030000,"issuertokens":0.00000000},{"txid":"d90e89d1a5487d0abaebb70d3baeec6eafb8b62380f639d999bd3f3d6a4433f8","amountsent":0.00000501,"participanttokens":0.00000000,"issuertokens":0.00000000}]},"error":null,"id":"1"}
+{"result":{"name":"Fundraiser 3 Div","active":true,"issuer":"1DYb5Njvcgovt9gUMdMgYkpaQjAEdUooon","propertyiddesired":2,"tokensperunit":"0.00001000","earlybonus":0,"percenttoissuer":0,"starttime":1397243096,"deadline":1649030400,"amountraised":"32.29930502","tokensissued":"0.00032299","participanttransactions":[{"txid":"139e476fb34921f7cad834a2868dc4a734cd03a1e6b0a5eb03164e228e28e30d","amountsent":"1.29900000","participanttokens":"0.00001299","issuertokens":"0.00000000"},{"txid":"3995f9ff3400ef7274b2224e2f584261a70763ed0d03a5e125438cb46771f80d","amountsent":"0.00030000","participanttokens":"0.00000000","issuertokens":"0.00000000"},{"txid":"5136b5a2036d66beb0f0f260aabba09b8e0d64a8913bc49aad79f8fe43c04ba5","amountsent":"0.00000001","participanttokens":"0.00000000","issuertokens":"0.00000000"},{"txid":"72532216c9f43ce11a410b82f431fbf0613abef819f7ac58054396db81c8b38d","amountsent":"1.00000000","participanttokens":"0.00001000","issuertokens":"0.00000000"},{"txid":"85b1d028aee21f68f65f778341b4aca7e2921858acb14c2b2299e69a0307dab2","amountsent":"30.00000000","participanttokens":"0.00030000","issuertokens":"0.00000000"},{"txid":"d90e89d1a5487d0abaebb70d3baeec6eafb8b62380f639d999bd3f3d6a4433f8","amountsent":"0.00000501","participanttokens":"0.00000000","issuertokens":"0.00000000"}]},"error":null,"id":"1"}
 ```
 
 ###Listing currently active crowdsales
@@ -445,7 +449,7 @@ $src/mastercored getactivecrowdsales_MP
         "name" : "ShoePhone",
         "issuer" : "12vPM3chMgXBoyi5tWSjCcUBQvdPxd4QxH",
         "propertyiddesired" : 2,
-        "tokensperunit" : 8686,
+        "tokensperunit" : "8686",
         "earlybonus" : 28,
         "percenttoissuer" : 68,
         "starttime" : 1405022172,
@@ -456,7 +460,7 @@ $src/mastercored getactivecrowdsales_MP
         "name" : "OmpaLoompa",
         "issuer" : "18eVnuXEixXuVt248a5i18eLnkKbfmpUWk",
         "propertyiddesired" : 2,
-        "tokensperunit" : 0.00000100,
+        "tokensperunit" : "0.00000100",
         "earlybonus" : 25,
         "percenttoissuer" : 10,
         "starttime" : 1403303662,
@@ -467,7 +471,7 @@ $src/mastercored getactivecrowdsales_MP
         "name" : "1",
         "issuer" : "1CTmPpXF89LMNHwdizPXxSLd34uRok133V",
         "propertyiddesired" : 2147483692,
-        "tokensperunit" : 3.00000000,
+        "tokensperunit" : "3.00000000",
         "earlybonus" : 1,
         "percenttoissuer" : 1,
         "starttime" : 1404417063,
@@ -478,7 +482,7 @@ $src/mastercored getactivecrowdsales_MP
 ```
 ```
 {"jsonrpc":"1.0","id":"1","method":"getactivecrowdsales_MP","params":[]}
-{"result":[{"propertyid":2147483704,"name":"ShoePhone","issuer":"12vPM3chMgXBoyi5tWSjCcUBQvdPxd4QxH","propertyiddesired":2,"tokensperunit":8686,"earlybonus":28,"percenttoissuer":68,"starttime":1405022172,"deadline":1406925000000},{"propertyid":2147483679,"name":"OmpaLoompa","issuer":"18eVnuXEixXuVt248a5i18eLnkKbfmpUWk","propertyiddesired":2,"tokensperunit":0.00000100,"earlybonus":25,"percenttoissuer":10,"starttime":1403303662,"deadline":22453142409904},{"propertyid":2147483699,"name":"1","issuer":"1CTmPpXF89LMNHwdizPXxSLd34uRok133V","propertyiddesired":2147483692,"tokensperunit":3.00000000,"earlybonus":1,"percenttoissuer":1,"starttime":1404417063,"deadline":1407076800000},{"propertyid":2147483696,"name":"CrowdCoin","issuer":"1CXnRrBm3NezYeAcu555Ubu7swwKsn26dT","propertyiddesired":2,"tokensperunit":31337.00000000,"earlybonus":6,"percenttoissuer":10,"starttime":1404401559,"deadline":1407064860000},{"propertyid":2147483657,"name":"Fundraiser 3 Div","issuer":"1DYb5Njvcgovt9gUMdMgYkpaQjAEdUooon","propertyiddesired":2,"tokensperunit":0.00001000,"earlybonus":0,"percenttoissuer":0,"starttime":1397243096,"deadline":1649030400},{"propertyid":2147483703,"name":"WeeCoin","issuer":"1KVhsbJ4pBgZVSUYUVZUJ2xAMMbt8eY8vU","propertyiddesired":2,"tokensperunit":25.00000000,"earlybonus":2,"percenttoissuer":10,"starttime":1405016346,"deadline":1406987700000},{"propertyid":2147483712,"name":"SpaceLite Life Sciences R&D","issuer":"1MatrixoUT68b6mWwyRSpL6uVPpfwWhB9R","propertyiddesired":2147483707,"tokensperunit":7.00000000,"earlybonus":5,"percenttoissuer":100,"starttime":1405500631,"deadline":1409940240000},{"propertyid":2147483693,"name":"a","issuer":"1PVWtK1ATnvbRaRceLRH5xj8XV1LxUBu7n","propertyiddesired":2147483671,"tokensperunit":5.00000000,"earlybonus":1,"percenttoissuer":1,"starttime":1404169502,"deadline":1406696400000},{"propertyid":2147483710,"name":"mithradites","issuer":"1PfREWL44zJun1MLXkH64s88DSkPZXVxot","propertyiddesired":2,"tokensperunit":21000000.00000000,"earlybonus":6,"percenttoissuer":20,"starttime":1405228233,"deadline":1407888180000}],"error":null,"id":"1"}
+{"result":[{"propertyid":2147483704,"name":"ShoePhone","issuer":"12vPM3chMgXBoyi5tWSjCcUBQvdPxd4QxH","propertyiddesired":2,"tokensperunit":"8686","earlybonus":28,"percenttoissuer":68,"starttime":1405022172,"deadline":1406925000000},{"propertyid":2147483679,"name":"OmpaLoompa","issuer":"18eVnuXEixXuVt248a5i18eLnkKbfmpUWk","propertyiddesired":2,"tokensperunit":"0.00000100","earlybonus":25,"percenttoissuer":10,"starttime":1403303662,"deadline":22453142409904},{"propertyid":2147483699,"name":"1","issuer":"1CTmPpXF89LMNHwdizPXxSLd34uRok133V","propertyiddesired":2147483692,"tokensperunit":"3.00000000","earlybonus":1,"percenttoissuer":1,"starttime":1404417063,"deadline":1407076800000},{"propertyid":2147483696,"name":"CrowdCoin","issuer":"1CXnRrBm3NezYeAcu555Ubu7swwKsn26dT","propertyiddesired":2,"tokensperunit":"31337.00000000","earlybonus":6,"percenttoissuer":10,"starttime":1404401559,"deadline":1407064860000},{"propertyid":2147483657,"name":"Fundraiser 3 Div","issuer":"1DYb5Njvcgovt9gUMdMgYkpaQjAEdUooon","propertyiddesired":2,"tokensperunit":"0.00001000","earlybonus":0,"percenttoissuer":0,"starttime":1397243096,"deadline":1649030400},{"propertyid":2147483703,"name":"WeeCoin","issuer":"1KVhsbJ4pBgZVSUYUVZUJ2xAMMbt8eY8vU","propertyiddesired":2,"tokensperunit":"25.00000000","earlybonus":2,"percenttoissuer":10,"starttime":1405016346,"deadline":1406987700000},{"propertyid":2147483712,"name":"SpaceLite Life Sciences R&D","issuer":"1MatrixoUT68b6mWwyRSpL6uVPpfwWhB9R","propertyiddesired":2147483707,"tokensperunit":"7.00000000","earlybonus":5,"percenttoissuer":100,"starttime":1405500631,"deadline":1409940240000},{"propertyid":2147483693,"name":"a","issuer":"1PVWtK1ATnvbRaRceLRH5xj8XV1LxUBu7n","propertyiddesired":2147483671,"tokensperunit":"5.00000000","earlybonus":1,"percenttoissuer":1,"starttime":1404169502,"deadline":1406696400000},{"propertyid":2147483710,"name":"mithradites","issuer":"1PfREWL44zJun1MLXkH64s88DSkPZXVxot","propertyiddesired":2,"tokensperunit":"21000000.00000000","earlybonus":6,"percenttoissuer":20,"starttime":1405228233,"deadline":1407888180000}],"error":null,"id":"1"}
 ```
 
 ###Broadcasting a Send to Owners transaction
@@ -487,18 +491,18 @@ The **sendtoowners_MP** call allows for broadcast of a Send to Owners transactio
 **Required Parameters**
 - **_sender address (string):_** A valid bitcoin address containing a sufficient balance to support the transaction
 - **_currency/property ID (integer):_** A valid Master Protocol currency/property ID
-- **_amount (float):_** The amount to issue to owners (note if sending individisble tokens any decimals will be truncated)
+- **_amount (string):_** The amount to issue to owners (note if sending individisble tokens any decimals will be truncated)
 
 **Additional Optional Parameters**
 - There are currently no supported optional parameters for this call.
 
 **Examples**
 ```
-$src/mastercored sendtoowners_MP "1MCHESTxYkPSLoJ57WBQot7vz3xkNahkcb" 2147483668 5
+$src/mastercored sendtoowners_MP "1MCHESTxYkPSLoJ57WBQot7vz3xkNahkcb" 2147483668 "5"
 3fba3995f679f764efbdfc800331a8dc333211cf50291072c3c2dfcb1569c3d8
 ```
 ```
-{"jsonrpc":"1.0","id":"1","method":"sendtoowners_MP","params":[""1MCHESTxYkPSLoJ57WBQot7vz3xkNahkcb",2147483668,5]}
+{"jsonrpc":"1.0","id":"1","method":"sendtoowners_MP","params":[""1MCHESTxYkPSLoJ57WBQot7vz3xkNahkcb",2147483668,"5"]}
 {"result":"3fba3995f679f764efbdfc800331a8dc333211cf50291072c3c2dfcb1569c3d8","error":null,"id":"1"}
 ```
 *Please note, the private key for the requested sender address must be available in the wallet.*
@@ -520,12 +524,12 @@ $src/mastercored getactivedexsells_MP
         "txid" : "9133dc9f042a4edd92a8bc1f1764a9cc5e0b1f04061ccb74e5fce34981f664a1",
         "propertyid" : 1,
         "seller" : "1Ji1E3r4paY8ZqtudraKYvc7cfN1fyEfNo",
-        "amountavailable" : 0.01000000,
-        "bitcoindesired" : 0.00200000,
-        "unitprice" : 0.20000000,
+        "amountavailable" : "0.01000000",
+        "bitcoindesired" : "0.00200000",
+        "unitprice" : "0.20000000",
         "timelimit" : 6,
-        "minimumfee" : 0.00010000,
-        "amountaccepted" : 0.00000000,
+        "minimumfee" : "0.00010000",
+        "amountaccepted" : "0.00000000",
         "accepts" : [
         ]
     },
@@ -533,14 +537,37 @@ $src/mastercored getactivedexsells_MP
         "txid" : "28d951ac4b48c31706561dac62fd0ea065a7873faede5316ff04817e1057315f",
         "propertyid" : 1,
         "seller" : "1K5Tofy7UTfcrpWBnXcJhHZzvLTksDdasQ",
-        "amountavailable" : 0.00000001,
-        "bitcoindesired" : 0.00000000,
-        "unitprice" : 0.12000000,
+        "amountavailable" : "0.00000001",
+        "bitcoindesired" : "0.00000000",
+        "unitprice" : "0.12000000",
         "timelimit" : 100,
-        "minimumfee" : 0.00010000,
-        "amountaccepted" : 0.00000000,
+        "minimumfee" : "0.00010000",
+        "amountaccepted" : "0.00000000",
         "accepts" : [
         ]
     }
 ]
 ```
+
+###Get grant/revoke info for a property ID
+The **getgrants_MP** call allows for grant/revoke retreival of a property ID.
+
+**Required Parameters**
+- **_currency/property ID (integer):_** A valid Master Protocol currency/property ID
+
+**Additional Optional Parameters**
+- There are currently no supported optional parameters for this call.
+
+Result: A list of revoke/grant transactions for a propertyID.
+
+
+###Return all Master Protocol transactions in a block
+The **listblocktransactions_MP** call allows one to view Master Protocol transactions in a block.
+
+**Required Parameters**
+- **_block height/index (integer):_** A valid blockheight or index
+
+**Additional Optional Parameters**
+- There are currently no supported optional parameters for this call.
+
+Result: A list of Master Protocol txids
