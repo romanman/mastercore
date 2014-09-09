@@ -2275,7 +2275,7 @@ public:
   uint64_t getAmount() const { return nValue; }
   uint64_t getNewAmount() const { return nNewValue; }
 
-  string getSPName() const {return name; }
+  string getSPName() const { return boost::lexical_cast<string>(name); }
 
   void SetNull()
   {
@@ -5893,7 +5893,7 @@ Value gettransaction_MP(const Array& params, bool fHelp)
                 unsigned char sell_timelimit = 0;
                 unsigned char sell_subaction = 0;
                 uint64_t sell_btcdesired = 0;
-
+                int rc=0;
                 bool crowdPurchase = false;
                 int64_t crowdPropertyId = 0;
                 int64_t crowdTokens = 0;
@@ -5988,7 +5988,6 @@ Value gettransaction_MP(const Array& params, bool fHelp)
                                 uint32_t tmptype=0;
                                 uint64_t amountNew=0;
                                 valid=getValidMPTX(wtxid, &tmpblock, &tmptype, &amountNew);
-
                                 //populate based on type of tx
                                 switch (MPTxTypeInt)
                                 {
@@ -5997,12 +5996,12 @@ Value gettransaction_MP(const Array& params, bool fHelp)
                                           amount = getTotalTokens(propertyId);
                                      break;
                                      case MSC_TYPE_CREATE_PROPERTY_VARIABLE:
-                                          int rc=0;
-                                          if (0 == mp_obj.step2_SmartProperty(&rc))
+                                          mp_obj.step2_SmartProperty(rc);
+                                          if (0 == rc)
                                           {
-                                               propertyId = _my_sps->findSPByTX(wtxid); // propertyId of created property (if valid)
-                                               amount = 0; // crowdsale txs always create zero tokens
-                                               propertyName = mp_obj.getSPName();
+                                              propertyId = _my_sps->findSPByTX(wtxid); // propertyId of created property (if valid)
+                                              amount = 0; // crowdsale txs always create zero tokens
+                                              propertyName = mp_obj.getSPName();
                                           }
                                      break;
                                      case MSC_TYPE_SIMPLE_SEND:
