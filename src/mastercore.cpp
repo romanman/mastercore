@@ -2305,6 +2305,8 @@ public:
   uint64_t getAmount() const { return nValue; }
   uint64_t getNewAmount() const { return nNewValue; }
 
+  string getSPName() const { return boost::lexical_cast<string>(name); }
+
   void SetNull()
   {
     currency = 0;
@@ -5934,13 +5936,14 @@ Value gettransaction_MP(const Array& params, bool fHelp)
                 unsigned char sell_timelimit = 0;
                 unsigned char sell_subaction = 0;
                 uint64_t sell_btcdesired = 0;
-
+                int rc=0;
                 bool crowdPurchase = false;
                 int64_t crowdPropertyId = 0;
                 int64_t crowdTokens = 0;
                 int64_t issuerTokens = 0;
                 bool crowdDivisible = false;
                 string crowdName;
+                string propertyName;
 
                 if ((0 == blockHash) || (NULL == mapBlockIndex[blockHash]))
                         throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Exception: blockHash is 0");
@@ -6028,17 +6031,26 @@ Value gettransaction_MP(const Array& params, bool fHelp)
                                 uint32_t tmptype=0;
                                 uint64_t amountNew=0;
                                 valid=getValidMPTX(wtxid, &tmpblock, &tmptype, &amountNew);
-
                                 //populate based on type of tx
                                 switch (MPTxTypeInt)
                                 {
                                      case MSC_TYPE_CREATE_PROPERTY_FIXED:
-                                          propertyId = _my_sps->findSPByTX(wtxid); // propertyId of created property (if valid)
-                                          amount = getTotalTokens(propertyId);
+                                          mp_obj.step2_SmartProperty(rc);
+                                          if (0 == rc)
+                                          {
+                                              propertyId = _my_sps->findSPByTX(wtxid); // propertyId of created property (if valid)
+                                              amount = getTotalTokens(propertyId);
+                                              propertyName = mp_obj.getSPName();
+                                          }
                                      break;
                                      case MSC_TYPE_CREATE_PROPERTY_VARIABLE:
-                                          propertyId = _my_sps->findSPByTX(wtxid); // propertyId of created property (if valid)
-                                          amount = 0; // crowdsale txs always create zero tokens
+                                          mp_obj.step2_SmartProperty(rc);
+                                          if (0 == rc)
+                                          {
+                                              propertyId = _my_sps->findSPByTX(wtxid); // propertyId of created property (if valid)
+                                              amount = 0; // crowdsale txs always create zero tokens
+                                              propertyName = mp_obj.getSPName();
+                                          }
                                      break;
                                      case MSC_TYPE_CREATE_PROPERTY_MANUAL:
                                           propertyId = _my_sps->findSPByTX(wtxid); // propertyId of created property (if valid)
@@ -6133,6 +6145,7 @@ Value gettransaction_MP(const Array& params, bool fHelp)
                         txobj.push_back(Pair("blocktime", blockTime));
                         txobj.push_back(Pair("type", MPTxType));
                         txobj.push_back(Pair("propertyid", propertyId));
+                        if ((MSC_TYPE_CREATE_PROPERTY_VARIABLE == MPTxTypeInt) || (MSC_TYPE_CREATE_PROPERTY_FIXED == MPTxTypeInt)) txobj.push_back(Pair("propertyname", propertyName));
                         txobj.push_back(Pair("divisible", divisible));
                         if (divisible)
                         {
