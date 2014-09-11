@@ -170,6 +170,33 @@ static bool writePersistence(int block_now)
   return true;
 }
 
+// copied from ShrinkDebugFile, util.cpp
+static void ShrinkMasterCoreDebugFile()
+{
+    // Scroll debug.log if it's getting too big
+#ifndef  DISABLE_LOG_FILE
+    boost::filesystem::path pathLog = GetDataDir() / "mastercore.log";
+    FILE* file = fopen(pathLog.string().c_str(), "r");
+    if (file && boost::filesystem::file_size(pathLog) > 50 * 1000000) // 50 MBytes
+    {
+        // Restart the file with some of the end
+        char pch[800000];
+        fseek(file, -sizeof(pch), SEEK_END);
+        int nBytes = fread(pch, 1, sizeof(pch), file);
+        fclose(file);
+
+        file = fopen(pathLog.string().c_str(), "w");
+        if (file)
+        {
+            fwrite(pch, 1, nBytes, file);
+            fclose(file);
+        }
+    }
+    else if (file != NULL)
+        fclose(file);
+#endif
+}
+
 string strMPCurrency(unsigned int i)
 {
 string str = "*unknown*";
@@ -3192,8 +3219,14 @@ https://github.com/mastercoin-MSC/spec/issues/170
       boost::filesystem::path pathOwners = GetDataDir() / OWNERS_FILENAME;
       FILE *fp = fopen(pathOwners.string().c_str(), "a");
 
-      // TODO: write info line into the file, timestamp, block #, txid etc.........
-      // ...
+      if (fp)
+      {
+        // TODO: write info line into the file, timestamp, block #, txid etc.........
+      }
+      else
+      {
+        fprintf(mp_fp, "\nPROBLEM writing %s, errno= %d\n", INFO_FILENAME, errno);
+      }
 
       rc = logicMath_SendToOwners(fp);
 
@@ -4878,8 +4911,11 @@ int mastercore_init()
 
   printf("%s()%s, line %d, file: %s\n", __FUNCTION__, isNonMainNet() ? "TESTNET":"", __LINE__, __FILE__);
 
+  ShrinkMasterCoreDebugFile();
+
 #ifndef  DISABLE_LOG_FILE
-  boost::filesystem::path pathTempLog = GetTempPath() / "mastercore.log";
+  boost::filesystem::path pathTempLog = GetDataDir() / "mastercore.log";
+//  boost::filesystem::path pathTempLog = GetTempPath() / "mastercore.log";
   mp_fp = fopen(pathTempLog.string().c_str(), "a");
 #else
   mp_fp = stdout;
