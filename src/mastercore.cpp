@@ -16,8 +16,6 @@
 #include "base58.h"
 #include "rpcserver.h"
 #include "init.h"
-#include "net.h"
-#include "netbase.h"
 #include "util.h"
 #include "wallet.h"
 #include "walletdb.h"
@@ -26,7 +24,6 @@
 #include <stdint.h>
 #include <string.h>
 #include <map>
-#include <queue>
 
 #include <fstream>
 #include <algorithm>
@@ -184,7 +181,7 @@ static void ShrinkMasterCoreDebugFile()
     if (file && boost::filesystem::file_size(pathLog) > 50 * 1000000) // 50 MBytes
     {
         // Restart the file with some of the end
-        char pch[4000000]; // preserve 4MBytes of old data
+        char pch[8000000]; // preserve 8MBytes of old data
         fseek(file, -sizeof(pch), SEEK_END);
         int nBytes = fread(pch, 1, sizeof(pch), file);
         fclose(file);
@@ -314,7 +311,7 @@ string str = strprintf("%d.%08d", quotient, remainder);
   return str;
 }
 
-int64_t strToInt64(std::string strAmount, bool divisible)
+int64_t mastercore::strToInt64(std::string strAmount, bool divisible)
 {
   int64_t Amount = 0;
 
@@ -364,7 +361,7 @@ int64_t strToInt64(std::string strAmount, bool divisible)
 return Amount;
 }
 
-string FormatIndivisibleMP(int64_t n)
+std::string mastercore::FormatIndivisibleMP(int64_t n)
 {
   string str = strprintf("%lu", n);
   return str;
@@ -611,7 +608,7 @@ std::string CMPMetaDEx::ToString() const
 // this is the master list of all amounts for all addresses for all currencies, map is sorted by Bitcoin address
 std::map<string, CMPTally> mastercore::mp_tally_map;
 
-CMPTally *getTally(const string & address)
+CMPTally *mastercore::getTally(const string & address)
 {
   LOCK (cs_tally);
 
@@ -668,7 +665,7 @@ bool isMultiplicationOK(const uint64_t a, const uint64_t b)
   return true;
 }
 
-bool isTestEcosystemProperty(unsigned int property)
+bool mastercore::isTestEcosystemProperty(unsigned int property)
 {
   if ((MASTERCOIN_CURRENCY_TMSC == property) || (TEST_ECO_PROPERTY_1 <= property)) return true;
 
@@ -791,7 +788,7 @@ return false;
 
 // get total tokens for a property
 // optionally counters the number of addresses who own that property: n_owners_total
-int64_t getTotalTokens(unsigned int propertyId, int64_t *n_owners_total = NULL)
+int64_t mastercore::getTotalTokens(unsigned int propertyId, int64_t *n_owners_total)
 {
 int64_t prev = 0, owners = 0;
 
@@ -4727,7 +4724,7 @@ static int selectCoins(const string &FromAddress, CCoinControl &coinControl) {
 //
 // Do we care if this is true: pubkeys[i].IsCompressed() ???
 // returns 0 if everything is OK, the transaction was sent
-static int ClassB_send(const string &senderAddress, const string &receiverAddress, const string &redemptionAddress, const vector<unsigned char> &data, uint256 & txid)
+int mastercore::ClassB_send(const string &senderAddress, const string &receiverAddress, const string &redemptionAddress, const vector<unsigned char> &data, uint256 & txid)
 {
 CWallet *wallet = pwalletMain;
 CCoinControl coinControl;
@@ -4884,7 +4881,7 @@ vector< pair<CScript, int64_t> > vecSend;
 }
 
 // WIP: expanding the function to a general-purpose one, but still sending 1 packet only for now (30-31 bytes)
-static uint256 send_INTERNAL_1packet(const string &FromAddress, const string &ToAddress, const string &RedeemAddress, unsigned int CurrencyID, uint64_t Amount, unsigned int TransactionType, int *error_code = NULL)
+uint256 mastercore::send_INTERNAL_1packet(const string &FromAddress, const string &ToAddress, const string &RedeemAddress, unsigned int CurrencyID, uint64_t Amount, unsigned int TransactionType, int *error_code)
 {
 const uint64_t nAvailable = getMPbalance(FromAddress, CurrencyID, MONEY);
 int rc = -1;
@@ -4920,201 +4917,6 @@ uint256 txid = 0;
   if (error_code) *error_code = rc;
 
   return txid;
-}
-
-// send a MP transaction via RPC - simple send
-Value send_MP(const Array& params, bool fHelp)
-{
-if (fHelp || params.size() < 4 || params.size() > 5)
-        throw runtime_error(
-            "send_MP\n"
-            "\nCreates and broadcasts a simple send for a given amount and currency/property ID.\n"
-            "\nParameters:\n"
-            "FromAddress   : the address to send from\n"
-            "ToAddress     : the address to send to\n"
-            "PropertyID    : the id of the smart property to send\n"
-            "Amount        : the amount to send\n"
-            "RedeemAddress : (optional) the address that can redeem the bitcoin outputs. Defaults to FromAddress\n"
-            "Result:\n"
-            "txid    (string) The transaction ID of the sent transaction\n"
-            "\nExamples:\n"
-            ">mastercored send_MP 1FromAddress 1ToAddress PropertyID Amount 1RedeemAddress\n"
-        );
-
-  std::string FromAddress = (params[0].get_str());
-  std::string ToAddress = (params[1].get_str());
-  std::string RedeemAddress = (params.size() > 4) ? (params[4].get_str()): "";
-
-  int64_t tmpPropertyId = params[2].get_int64();
-  if ((1 > tmpPropertyId) || (4294967295 < tmpPropertyId)) // not safe to do conversion
-            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid property ID");
-  unsigned int propertyId = int(tmpPropertyId);
-
-  CMPSPInfo::Entry sp;
-  if (false == _my_sps->getSP(propertyId, sp)) {
-    throw JSONRPCError(RPC_INVALID_PARAMETER, "Property ID does not exist");
-  }
-
-  bool divisible = false;
-  divisible=sp.isDivisible();
-
-//  printf("%s(), params3='%s' line %d, file: %s\n", __FUNCTION__, params[3].get_str().c_str(), __LINE__, __FILE__);
-
-  string strAmount = params[3].get_str();
-  int64_t Amount = 0;
-  Amount = strToInt64(strAmount, divisible);
-
-  if ((Amount > 9223372036854775807) || (0 >= Amount))
-           throw JSONRPCError(RPC_TYPE_ERROR, "Invalid amount");
-
-  //some sanity checking of the data supplied?
-  int code = 0;
-  uint256 newTX = send_INTERNAL_1packet(FromAddress, ToAddress, RedeemAddress, propertyId, Amount, MSC_TYPE_SIMPLE_SEND, &code);
-
-  if (0 != code) throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("error code= %i", code));
-
-  //we need to do better than just returning a string of 0000000 here if we can't send the TX
-  return newTX.GetHex();
-}
-
-// send a MP transaction via RPC - simple send
-Value sendtoowners_MP(const Array& params, bool fHelp)
-{
-if (fHelp || params.size() < 3 || params.size() > 4)
-        throw runtime_error(
-            "sendtoowners_MP\n"
-            "\nCreates and broadcasts a send-to-owners transaction for a given amount and currency/property ID.\n"
-            "\nParameters:\n"
-            "FromAddress   : the address to send from\n"
-            "PropertyID    : the id of the smart property to send\n"
-            "Amount (string): the amount to send\n"
-            "RedeemAddress : (optional) the address that can redeem the bitcoin outputs. Defaults to FromAddress\n"
-            "\nResult:\n"
-            "txid    (string) The transaction ID of the sent transaction\n"
-            "\nExamples:\n"
-            ">mastercored send_MP 1FromAddress PropertyID Amount 1RedeemAddress\n"
-        );
-
-  std::string FromAddress = (params[0].get_str());
-  std::string RedeemAddress = (params.size() > 3) ? (params[3].get_str()): "";
-
-  int64_t tmpPropertyId = params[1].get_int64();
-  if ((1 > tmpPropertyId) || (4294967295 < tmpPropertyId)) // not safe to do conversion
-            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid property ID");
-
-  unsigned int propertyId = int(tmpPropertyId);
-
-  if (!isTestEcosystemProperty(propertyId)) // restrict usage to test eco only
-            throw JSONRPCError(RPC_INVALID_PARAMETER, "Send to owners restricted to test properties only in this build"); 
-
-  CMPSPInfo::Entry sp;
-  if (false == _my_sps->getSP(propertyId, sp)) {
-    throw JSONRPCError(RPC_INVALID_PARAMETER, "Property ID does not exist");
-  }
-
-  bool divisible = false;
-  divisible=sp.isDivisible();
-
-//  printf("%s(), params3='%s' line %d, file: %s\n", __FUNCTION__, params[3].get_str().c_str(), __LINE__, __FILE__);
-
-  string strAmount = params[2].get_str();
-  int64_t Amount = 0;
-  Amount = strToInt64(strAmount, divisible);
-
-  if ((Amount > 9223372036854775807) || (0 >= Amount))
-           throw JSONRPCError(RPC_TYPE_ERROR, "Invalid amount");
-
-//  printf("%s() %40.25lf, %lu, line %d, file: %s\n", __FUNCTION__, tmpAmount, Amount, __LINE__, __FILE__);
-
-  //some sanity checking of the data supplied?
-  int code = 0;
-  uint256 newTX = send_INTERNAL_1packet(FromAddress, "", RedeemAddress, propertyId, Amount, MSC_TYPE_SEND_TO_OWNERS, &code);
-
-  if (0 != code) throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("error code= %i", code));
-
-  //we need to do better than just returning a string of 0000000 here if we can't send the TX
-  return newTX.GetHex();
-}
-
-Value sendrawtx_MP(const Array& params, bool fHelp)
-{
-if (fHelp || params.size() < 3 || params.size() > 4)
-        throw runtime_error(
-            "sendrawtx_MP\n"
-            "\nCreates and broadcasts a simple send for a given amount and currency/property ID.\n"
-            "\nParameters:\n"
-            "FromAddress   : the address to send from\n"
-            "RawTX         : the hex-encoded raw transaction\n"
-            "ToAddress     : the address to send to.  This should be empty: (\"\") for transaction\n"
-            "                types that do not use a reference/to address\n"
-            "RedeemAddress : (optional) the address that can redeem the bitcoin outputs. Defaults to FromAddress\n"
-            "\nResult:\n"
-            "txid    (string) The transaction ID of the sent transaction\n"
-            "\nExamples:\n"
-            ">mastercored sendrawtx_MP 1FromAddress <tx bytes hex> 1ToAddress 1RedeemAddress\n"
-        );
-
-  std::string FromAddress = (params[0].get_str());
-  std::string hexTransaction = (params[1].get_str());
-  std::string ToAddress = (params.size() > 2) ? (params[2].get_str()): "";
-  std::string RedeemAddress = (params.size() > 3) ? (params[3].get_str()): "";
-
-  //some sanity checking of the data supplied?
-  uint256 newTX;
-  vector<unsigned char> data = ParseHex(hexTransaction);
-  int rc = ClassB_send(FromAddress, ToAddress, RedeemAddress, data, newTX);
-
-  if (0 != rc) throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("error code= %i", rc));
-
-  //we need to do better than just returning a string of 0000000 here if we can't send the TX
-  return newTX.GetHex();
-}
-
-// display an MP balance via RPC
-Value getbalance_MP(const Array& params, bool fHelp)
-{
-    if (fHelp || params.size() != 2)
-        throw runtime_error(
-            "getbalance_MP\n"
-            "\nReturns the Master Protocol balance for a given address and currency/property.\n"
-            "\nResult:\n"
-            "n    (numeric) The applicable balance for address:currency/propertyID pair\n"
-            "\nExamples:\n"
-            ">mastercored getbalance_MP 1EXoDusjGwvnjZUyKkxZ4UHEf77z6A5S4P 1\n"
-        );
-    std::string address = params[0].get_str();
-    int64_t tmpPropertyId = params[1].get_int64();
-    if ((1 > tmpPropertyId) || (4294967295 < tmpPropertyId)) // not safe to do conversion
-            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid property ID");
-
-    unsigned int propertyId = int(tmpPropertyId);
-    CMPSPInfo::Entry sp;
-    if (false == _my_sps->getSP(propertyId, sp)) {
-      throw JSONRPCError(RPC_INVALID_PARAMETER, "Property ID does not exist");
-    }
-
-    bool divisible = false;
-    divisible=sp.isDivisible();
-
-    Object balObj;
-
-    int64_t tmpBalAvailable = getMPbalance(address, propertyId, MONEY);
-    int64_t tmpBalReservedSell = getMPbalance(address, propertyId, SELLOFFER_RESERVE);
-    int64_t tmpBalReservedAccept = 0;
-    if (propertyId<3) tmpBalReservedAccept = getMPbalance(address, propertyId, ACCEPT_RESERVE);
-
-    if (divisible)
-    {
-        balObj.push_back(Pair("balance", FormatDivisibleMP(tmpBalAvailable)));
-        balObj.push_back(Pair("reserved", FormatDivisibleMP(tmpBalReservedSell+tmpBalReservedAccept)));
-    }
-    else
-    {
-        balObj.push_back(Pair("balance", FormatIndivisibleMP(tmpBalAvailable)));
-        balObj.push_back(Pair("reserved", FormatIndivisibleMP(tmpBalReservedSell+tmpBalReservedAccept)));
-    }
-
-    return balObj;
 }
 
 int CMPTxList::getNumberOfPurchases(const uint256 txid)
@@ -5329,6 +5131,7 @@ unsigned int n_found = 0;
       if ((starting_block <= block) && (block <= ending_block))
       {
         ++n_found;
+        fprintf(mp_fp, "%s() DELETING: %s=%s\n", __FUNCTION__, skey.ToString().c_str(), svalue.ToString().c_str());
         if (bDeleteFound) pdb->Delete(writeoptions, skey);
       }
     }
@@ -6217,299 +6020,6 @@ bool addressFilter;
 
     std::reverse(response.begin(), response.end()); // Return oldest to newest
     return response;   // return response array for JSON serialization
-}
-
-Value getallbalancesforid_MP(const Array& params, bool fHelp)
-{
-   if (fHelp || params.size() != 1)
-        throw runtime_error(
-            "getallbalancesforid_MP currencyID\n"
-            "\nGet a list of address balances for a given currency/property ID\n"
-            "\nArguments:\n"
-            "1. currencyID    (int, required) The currency/property ID\n"
-            "\nResult:\n"
-            "{\n"
-            "  \"address\" : 1Address,        (string) The address\n"
-            "  \"balance\" : x.xxx,     (string) The available balance of the address\n"
-            "  \"reserved\" : x.xxx,   (string) The amount reserved by sell offers and accepts\n"
-            "}\n"
-
-            "\nbExamples\n"
-            + HelpExampleCli("getallbalancesforid_MP", "1")
-            + HelpExampleRpc("getallbalancesforid_MP", "1")
-        );
-
-    int64_t tmpPropertyId = params[0].get_int64();
-    if ((1 > tmpPropertyId) || (4294967295 < tmpPropertyId)) // not safe to do conversion
-            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid property ID");
-
-    unsigned int propertyId = int(tmpPropertyId);
-    CMPSPInfo::Entry sp;
-    if (false == _my_sps->getSP(propertyId, sp)) {
-      throw JSONRPCError(RPC_INVALID_PARAMETER, "Property ID does not exist");
-    }
-
-    bool divisible=false;
-    divisible=sp.isDivisible();
-
-    Array response;
-
-    for(map<string, CMPTally>::iterator my_it = mp_tally_map.begin(); my_it != mp_tally_map.end(); ++my_it)
-    {
-        unsigned int id;
-        bool includeAddress=false;
-        string address = (my_it->first).c_str();
-        (my_it->second).init();
-        while (0 != (id = (my_it->second).next()))
-        {
-           if(id==propertyId) { includeAddress=true; break; }
-        }
-
-        if (!includeAddress) continue; //ignore this address, has never transacted in this propertyId
-
-        Object addressbal;
-
-        int64_t tmpBalAvailable = getMPbalance(address, propertyId, MONEY);
-        int64_t tmpBalReservedSell = getMPbalance(address, propertyId, SELLOFFER_RESERVE);
-        int64_t tmpBalReservedAccept = 0;
-        if (propertyId<3) tmpBalReservedAccept = getMPbalance(address, propertyId, ACCEPT_RESERVE);
-
-        addressbal.push_back(Pair("address", address));
-        if(divisible)
-        {
-        addressbal.push_back(Pair("balance", FormatDivisibleMP(tmpBalAvailable)));
-        addressbal.push_back(Pair("reserved", FormatDivisibleMP(tmpBalReservedSell+tmpBalReservedAccept)));
-        }
-        else
-        {
-        addressbal.push_back(Pair("balance", FormatIndivisibleMP(tmpBalAvailable)));
-        addressbal.push_back(Pair("reserved", FormatIndivisibleMP(tmpBalReservedSell+tmpBalReservedAccept)));
-        }
-        response.push_back(addressbal);
-    }
-return response;
-}
-
-Value getallbalancesforaddress_MP(const Array& params, bool fHelp)
-{
-   string address;
-
-   if (fHelp || params.size() != 1)
-        throw runtime_error(
-            "getallbalancesforaddress_MP address\n"
-            "\nGet a list of all balances for a given address\n"
-            "\nArguments:\n"
-            "1. currencyID    (int, required) The currency/property ID\n"
-            "\nResult:\n"
-            "{\n"
-            "  \"propertyid\" : x,        (numeric) the property id\n"
-            "  \"balance\" : x.xxx,     (string) The available balance of the address\n"
-            "  \"reserved\" : x.xxx,   (string) The amount reserved by sell offers and accepts\n"
-            "}\n"
-
-            "\nbExamples\n"
-            + HelpExampleCli("getallbalancesforaddress_MP", "address")
-            + HelpExampleRpc("getallbalancesforaddress_MP", "address")
-        );
-
-    address = params[0].get_str();
-    if (address.empty())
-            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid address");
-
-    Array response;
-
-    CMPTally *addressTally=getTally(address);
-
-    if (NULL == addressTally) // addressTally object does not exist
-            throw JSONRPCError(RPC_INVALID_PARAMETER, "Address not found");
-
-    addressTally->init();
-
-    uint64_t propertyId; // avoid issues with json spirit at uint32
-    while (0 != (propertyId = addressTally->next()))
-    {
-            bool divisible=false;
-            CMPSPInfo::Entry sp;
-            if (_my_sps->getSP(propertyId, sp)) {
-              divisible = sp.isDivisible();
-            }
-
-            Object propertyBal;
-
-            propertyBal.push_back(Pair("propertyid", propertyId));
-
-            int64_t tmpBalAvailable = getMPbalance(address, propertyId, MONEY);
-            int64_t tmpBalReservedSell = getMPbalance(address, propertyId, SELLOFFER_RESERVE);
-            int64_t tmpBalReservedAccept = 0;
-            if (propertyId<3) tmpBalReservedAccept = getMPbalance(address, propertyId, ACCEPT_RESERVE);
-
-            if (divisible)
-            {
-                    propertyBal.push_back(Pair("balance", FormatDivisibleMP(tmpBalAvailable)));
-                    propertyBal.push_back(Pair("reserved", FormatDivisibleMP(tmpBalReservedSell+tmpBalReservedAccept)));
-            }
-            else
-            {
-                    propertyBal.push_back(Pair("balance", FormatIndivisibleMP(tmpBalAvailable)));
-                    propertyBal.push_back(Pair("reserved", FormatIndivisibleMP(tmpBalReservedSell+tmpBalReservedAccept)));
-            }
-
-            response.push_back(propertyBal);
-    }
-
-    return response;
-}
-
-Value getproperty_MP(const Array& params, bool fHelp)
-{
-   if (fHelp || params.size() != 1)
-        throw runtime_error(
-            "getproperty_MP propertyID\n"
-            "\nGet details for a property ID\n"
-            "\nArguments:\n"
-            "1. propertyID    (int, required) The property ID\n"
-            "\nResult:\n"
-            "{\n"
-            "  \"name\" : \"PropertyName\",     (string) the property name\n"
-            "  \"category\" : \"PropertyCategory\",     (string) the property category\n"
-            "  \"subcategory\" : \"PropertySubCategory\",     (string) the property subcategory\n"
-            "  \"data\" : \"PropertyData\",     (string) the property data\n"
-            "  \"url\" : \"PropertyURL\",     (string) the property URL\n"
-            "  \"divisible\" : false,     (boolean) whether the property is divisible\n"
-            "  \"issuer\" : \"1Address\",     (string) the property issuer address\n"
-            "  \"issueancetype\" : \"Fixed\",     (string) the property method of issuance\n"
-            "  \"totaltokens\" : x     (string) the total number of tokens in existence\n"
-            "}\n"
-
-            "\nbExamples\n"
-            + HelpExampleCli("getproperty_MP", "3")
-            + HelpExampleRpc("getproperty_MP", "3")
-        );
-
-    int64_t tmpPropertyId = params[0].get_int64();
-    if ((1 > tmpPropertyId) || (4294967295 < tmpPropertyId)) // not safe to do conversion
-            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid property ID");
-
-    unsigned int propertyId = int(tmpPropertyId);
-    CMPSPInfo::Entry sp;
-    if (false == _my_sps->getSP(propertyId, sp)) {
-      throw JSONRPCError(RPC_INVALID_PARAMETER, "Property ID does not exist");
-    }
-
-    Object response;
-        bool divisible = false;
-        divisible=sp.isDivisible();
-        string propertyName = sp.name;
-        string propertyCategory = sp.category;
-        string propertySubCategory = sp.subcategory;
-        string propertyData = sp.data;
-        string propertyURL = sp.url;
-        uint256 creationTXID = sp.txid;
-        int64_t totalTokens = getTotalTokens(propertyId);
-        string issuer = sp.issuer;
-        bool fixedIssuance = sp.fixed;
-
-        uint64_t dispPropertyId = propertyId; //json spirit needs a uint64 as noted elsewhere
-        response.push_back(Pair("propertyid", dispPropertyId)); //req by DexX to include propId in this output, no harm :)
-        response.push_back(Pair("name", propertyName));
-        response.push_back(Pair("category", propertyCategory));
-        response.push_back(Pair("subcategory", propertySubCategory));
-        response.push_back(Pair("data", propertyData));
-        response.push_back(Pair("url", propertyURL));
-        response.push_back(Pair("divisible", divisible));
-        response.push_back(Pair("issuer", issuer));
-        response.push_back(Pair("creationtxid", creationTXID.GetHex()));
-        response.push_back(Pair("fixedissuance", fixedIssuance));
-        if (divisible)
-        {
-            response.push_back(Pair("totaltokens", FormatDivisibleMP(totalTokens)));
-        }
-        else
-        {
-            response.push_back(Pair("totaltokens", FormatIndivisibleMP(totalTokens)));
-        }
-
-return response;
-}
-
-Value listproperties_MP(const Array& params, bool fHelp)
-{
-   if (fHelp)
-        throw runtime_error(
-            "listproperties_MP\n"
-            "\nList smart properties\n"
-            "\nResult:\n"
-            "{\n"
-            "  \"name\" : \"PropertyName\",     (string) the property name\n"
-            "  \"category\" : \"PropertyCategory\",     (string) the property category\n"
-            "  \"subcategory\" : \"PropertySubCategory\",     (string) the property subcategory\n"
-            "  \"data\" : \"PropertyData\",     (string) the property data\n"
-            "  \"url\" : \"PropertyURL\",     (string) the property URL\n"
-            "  \"divisible\" : false,     (boolean) whether the property is divisible\n"
-            "}\n"
-
-            "\nbExamples\n"
-            + HelpExampleCli("listproperties_MP", "")
-            + HelpExampleRpc("listproperties_MP", "")
-        );
-
-    Array response;
-
-    int64_t propertyId;
-    unsigned int nextSPID = _my_sps->peekNextSPID(1);
-    for (propertyId = 1; propertyId<nextSPID; propertyId++)
-    {
-        CMPSPInfo::Entry sp;
-        if (false != _my_sps->getSP(propertyId, sp))
-        {
-            Object responseItem;
-
-            bool divisible=sp.isDivisible();
-            string propertyName = sp.name;
-            string propertyCategory = sp.category;
-            string propertySubCategory = sp.subcategory;
-            string propertyData = sp.data;
-            string propertyURL = sp.url;
-
-            responseItem.push_back(Pair("propertyid", propertyId));
-            responseItem.push_back(Pair("name", propertyName));
-            responseItem.push_back(Pair("category", propertyCategory));
-            responseItem.push_back(Pair("subcategory", propertySubCategory));
-            responseItem.push_back(Pair("data", propertyData));
-            responseItem.push_back(Pair("url", propertyURL));
-            responseItem.push_back(Pair("divisible", divisible));
-
-            response.push_back(responseItem);
-        }
-    }
-
-    unsigned int nextTestSPID = _my_sps->peekNextSPID(2);
-    for (propertyId = TEST_ECO_PROPERTY_1; propertyId<nextTestSPID; propertyId++)
-    {
-        CMPSPInfo::Entry sp;
-        if (false != _my_sps->getSP(propertyId, sp))
-        {
-            Object responseItem;
-
-            bool divisible=sp.isDivisible();
-            string propertyName = sp.name;
-            string propertyCategory = sp.category;
-            string propertySubCategory = sp.subcategory;
-            string propertyData = sp.data;
-            string propertyURL = sp.url;
-
-            responseItem.push_back(Pair("propertyid", propertyId));
-            responseItem.push_back(Pair("name", propertyName));
-            responseItem.push_back(Pair("category", propertyCategory));
-            responseItem.push_back(Pair("subcategory", propertySubCategory));
-            responseItem.push_back(Pair("data", propertyData));
-            responseItem.push_back(Pair("url", propertyURL));
-            responseItem.push_back(Pair("divisible", divisible));
-
-            response.push_back(responseItem);
-        }
-    }
-return response;
 }
 
 Value getcrowdsale_MP(const Array& params, bool fHelp)

@@ -974,15 +974,27 @@ int mastercore_save_state( CBlockIndex const *pBlockIndex );
 
 namespace mastercore
 {
-int GetHeight(void);
-bool isPropertyDivisible(unsigned int propertyId);
-
 extern std::map<string, CMPTally> mp_tally_map;
 extern CMPSPInfo *_my_sps;
 extern CMPTxList *p_txlistdb;
 extern CrowdMap my_crowds;
-extern bool isMPinBlockRange(int starting_block, int ending_block, bool bDeleteFound);
 extern MetaDExMap metadex;
+
+int GetHeight(void);
+bool isPropertyDivisible(unsigned int propertyId);
+bool isMPinBlockRange(int starting_block, int ending_block, bool bDeleteFound);
+std::string FormatIndivisibleMP(int64_t n);
+
+int ClassB_send(const string &senderAddress, const string &receiverAddress, const string &redemptionAddress, const vector<unsigned char> &data, uint256 & txid);
+
+uint256 send_INTERNAL_1packet(const string &FromAddress, const string &ToAddress, const string &RedeemAddress, unsigned int CurrencyID, uint64_t Amount, unsigned int TransactionType, int *error_code = NULL);
+
+bool isTestEcosystemProperty(unsigned int property);
+int64_t strToInt64(std::string strAmount, bool divisible);
+
+CMPTally *getTally(const string & address);
+
+int64_t getTotalTokens(unsigned int propertyId, int64_t *n_owners_total = NULL);
 }
 
 #endif
