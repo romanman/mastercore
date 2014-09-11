@@ -173,14 +173,14 @@ static bool writePersistence(int block_now)
 // copied from ShrinkDebugFile, util.cpp
 static void ShrinkMasterCoreDebugFile()
 {
-    // Scroll debug.log if it's getting too big
+    // Scroll log if it's getting too big
 #ifndef  DISABLE_LOG_FILE
-    boost::filesystem::path pathLog = GetDataDir() / "mastercore.log";
+    boost::filesystem::path pathLog = GetDataDir() / LOG_FILENAME;
     FILE* file = fopen(pathLog.string().c_str(), "r");
     if (file && boost::filesystem::file_size(pathLog) > 50 * 1000000) // 50 MBytes
     {
         // Restart the file with some of the end
-        char pch[800000];
+        char pch[4000000]; // preserve 4MBytes of old data
         fseek(file, -sizeof(pch), SEEK_END);
         int nBytes = fread(pch, 1, sizeof(pch), file);
         fclose(file);
@@ -4914,8 +4914,8 @@ int mastercore_init()
   ShrinkMasterCoreDebugFile();
 
 #ifndef  DISABLE_LOG_FILE
-  boost::filesystem::path pathTempLog = GetDataDir() / "mastercore.log";
-//  boost::filesystem::path pathTempLog = GetTempPath() / "mastercore.log";
+  boost::filesystem::path pathTempLog = GetDataDir() / LOG_FILENAME;
+//  boost::filesystem::path pathTempLog = GetTempPath() / LOG_FILENAME;
   mp_fp = fopen(pathTempLog.string().c_str(), "a");
 #else
   mp_fp = stdout;

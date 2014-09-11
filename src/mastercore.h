@@ -9,6 +9,7 @@
 #include "netbase.h"
 #include "protocol.h"
 
+#define LOG_FILENAME    "mastercore.log"
 #define INFO_FILENAME   "mastercore_crowdsales.log"
 #define OWNERS_FILENAME "mastercore_owners.log"
 
