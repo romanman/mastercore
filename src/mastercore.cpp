@@ -1073,17 +1073,6 @@ const string accept_combo = STR_ACCEPT_ADDR_CURR_ADDR_COMBO(seller, buyer);
 
   const uint64_t nActualAmount = p_accept->getAcceptAmountRemaining();
 
-/*
-[1:33:22 AM] Michael: so if the offer is there the acceptDestroy should bring the ACCEPT_RESERVE back to SELLOFFER_RESERVE?
-[1:33:33 AM] Michael: if the offer is gone it should go back to MONEY
-[1:33:50 AM] Michael: if there was a NEW offer created, it should still go back to MONEY
-[1:33:59 AM] zathrasc: i think so yeah
-[1:34:42 AM] Michael: so the block # is our key
-[1:35:25 AM] Michael: the block #of the offer should be given to accept to determine whether the offer is still there or not
-[1:35:40 AM] zathrasc: perhaps txid?
-[1:35:56 AM] Michael: sure
-*/
-
   // if the offer is gone ACCEPT_RESERVE should go back to MONEY
   if (!p_offer)
   {
@@ -4751,9 +4740,13 @@ vector< pair<CScript, int64_t> > vecSend;
   // validate that the redemption Address is good
   if (wallet && address.IsValid())
   {
-    if (address.IsScript()) {
-
-    } else {
+    if (address.IsScript())
+    {
+      fprintf(mp_fp, "%s() ERROR: Redemption Address must be specified !\n", __FUNCTION__);
+      return (CLASSB_SEND_ERROR -33);
+    }
+    else
+    {
       CKeyID keyID;
 
       if (!address.GetKeyID(keyID))
@@ -4761,6 +4754,7 @@ vector< pair<CScript, int64_t> > vecSend;
 
       if (!wallet->GetPubKey(keyID, redeemingPubKey))
         return (CLASSB_SEND_ERROR -21);
+
       if (!redeemingPubKey.IsFullyValid())
         return (CLASSB_SEND_ERROR -22);
 
