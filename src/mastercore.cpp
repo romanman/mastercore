@@ -114,6 +114,9 @@ static int disableLevelDB = 0;
 
 static int mastercoreInitialized = 0;
 
+static int reorgRecoveryMode = 0;
+static int reorgRecoveryMaxHeight = 0;
+
 // TODO: there would be a block height for each TX version -- rework together with BLOCKHEIGHTRESTRICTIONS above
 static const int txRestrictionsRules[][3] = {
   {MSC_TYPE_SIMPLE_SEND,              GENESIS_BLOCK,      MP_TX_PKT_V0},
@@ -637,6 +640,8 @@ public:
 
     // other information
     uint256 txid;
+    uint256 creation_block;
+    uint256 update_block;
     bool fixed;
     bool manual;
 
@@ -663,6 +668,8 @@ public:
     , timeclosed(0)
     , txid_close()
     , txid()
+    , creation_block()
+    , update_block()
     , fixed(false)
     , manual(false)
     , historicalData()
@@ -681,6 +688,8 @@ public:
       spInfo.push_back(Pair("url", url));
       spInfo.push_back(Pair("data", data));
       spInfo.push_back(Pair("fixed", fixed));
+      spInfo.push_back(Pair("manual", manual));
+
       spInfo.push_back(Pair("num_tokens", (boost::format("%d") % num_tokens).str()));
       if (false == fixed && false == manual) {
         spInfo.push_back(Pair("currency_desired", (uint64_t)currency_desired));
@@ -722,9 +731,8 @@ public:
 
       spInfo.push_back(Pair("historicalData", values_long));
       spInfo.push_back(Pair("txid", (boost::format("%s") % txid.ToString()).str()));
-      spInfo.push_back(Pair("manual", manual));
-
-
+      spInfo.push_back(Pair("creation_block", (boost::format("%s") % creation_block.ToString()).str()));
+      spInfo.push_back(Pair("update_block", (boost::format("%s") % update_block.ToString()).str()));
       return spInfo;
     }
 
@@ -740,11 +748,7 @@ public:
       url = json[idx++].value_.get_str();
       data = json[idx++].value_.get_str();
       fixed = json[idx++].value_.get_bool();
-      if (fixed || json.size() < 16) {
-        manual = json[12].value_.get_bool();
-      } else {
-        manual = false;
-      }
+      manual = json[idx++].value_.get_bool();
 
       num_tokens = boost::lexical_cast<uint64_t>(json[idx++].value_.get_str());
       if (false == fixed && false == manual) {
@@ -798,7 +802,8 @@ public:
       }
       //fprintf(mp_fp,"\nDATABASE DESERIALIZE SUCCESS %lu", database.size());
       txid = uint256(json[idx++].value_.get_str());
-      idx++; // increment for manual that had to be parsed earlier for logic
+      creation_block = uint256(json[idx++].value_.get_str());
+      update_block = uint256(json[idx++].value_.get_str());
     }
 
     bool isDivisible() const
@@ -828,6 +833,7 @@ public:
 
 private:
   leveldb::DB *pDb;
+  boost::filesystem::path const path;
 
   // implied version of msc and tmsc so they don't hit the leveldb
   Entry implied_msc;
@@ -836,19 +842,29 @@ private:
   unsigned int next_spid;
   unsigned int next_test_spid;
 
-public:
-
-  CMPSPInfo(const boost::filesystem::path &path)
-  {
+  void openDB() {
     leveldb::Options options;
     options.paranoid_checks = true;
     options.create_if_missing = true;
 
     leveldb::Status s = leveldb::DB::Open(options, path.string(), &pDb);
 
-    if (false == s.ok()) {
-      printf("Failed to create or read LevelDB for Smart Property at %s", path.c_str());
-    }
+     if (false == s.ok()) {
+       printf("Failed to create or read LevelDB for Smart Property at %s", path.c_str());
+     }
+  }
+
+  void closeDB() {
+    delete pDb;
+    pDb = NULL;
+  }
+
+public:
+
+  CMPSPInfo(const boost::filesystem::path &_path)
+    : path(_path)
+  {
+    openDB();
 
     // special cases for constant SPs MSC and TMSC
     implied_msc.issuer = exodus;
@@ -873,14 +889,20 @@ public:
 
   ~CMPSPInfo()
   {
-    delete pDb;
-    pDb = NULL;
+    closeDB();
   }
 
   void init(unsigned int nextSPID = 0x3UL, unsigned int nextTestSPID = TEST_ECO_PROPERTY_1)
   {
     next_spid = nextSPID;
     next_test_spid = nextTestSPID;
+  }
+
+  void clear() {
+    closeDB();
+    leveldb::DestroyDB(path.string(), leveldb::Options());
+    openDB();
+    init();
   }
 
   unsigned int peekNextSPID(unsigned char ecosystem)
@@ -903,6 +925,11 @@ public:
 
   unsigned int updateSP(unsigned int propertyID, Entry const &info)
   {
+    // cannot update implied SP
+    if (MASTERCOIN_CURRENCY_MSC == propertyID || MASTERCOIN_CURRENCY_TMSC == propertyID) {
+      return propertyID;
+    }
+
     std::string nextIdStr;
     unsigned int res = propertyID;
 
@@ -911,20 +938,24 @@ public:
     // generate the SP id
     string spKey = (boost::format(FORMAT_BOOST_SPKEY) % propertyID).str();
     string spValue = write_string(Value(spInfo), false);
-    string txIndexKey = (boost::format("index-tx-%s") % info.txid.ToString() ).str();
-    string txValue = (boost::format("%d") % propertyID).str();
+    string spPrevKey = (boost::format("blk-%s:sp-%d") % info.update_block.ToString() % propertyID).str();
+    string spPrevValue;
 
-    fprintf(mp_fp,"\nUpdated LevelDB with SP data successfully\n");
+    leveldb::WriteBatch commitBatch;
     
-    // atomically write both the the SP and the index to the database
+    leveldb::ReadOptions readOpts;
+    readOpts.fill_cache = false;
     leveldb::WriteOptions writeOptions;
     writeOptions.sync = true;
 
-    leveldb::WriteBatch commitBatch;
+    // if a value exists move it to the old key
+    if (false == pDb->Get(readOpts, spKey, &spPrevValue).IsNotFound()) {
+      commitBatch.Put(spPrevKey, spPrevValue);
+    }
     commitBatch.Put(spKey, spValue);
-    commitBatch.Put(txIndexKey, txValue);
-
     pDb->Write(writeOptions, &commitBatch);
+
+    fprintf(mp_fp,"\nUpdated LevelDB with SP data successfully\n");
     return res;
   }
 
@@ -1018,11 +1049,11 @@ public:
     string spKey = (boost::format(FORMAT_BOOST_SPKEY) % spid).str();
     leveldb::Iterator *iter = pDb->NewIterator(readOpts);
     iter->Seek(spKey);
-    if (iter->Valid() && iter->key().compare(spKey) == 0) {
-      return true;
-    }
+    bool res = (iter->Valid() && iter->key().compare(spKey) == 0);
+    // clean up the iterator
+    delete iter;
 
-    return false;
+    return res;
   }
 
   unsigned int findSPByTX(uint256 const &txid)
@@ -1038,6 +1069,96 @@ public:
     }
 
     return res;
+  }
+
+  int popBlock(uint256 const &block_hash)
+  {
+    int res = 0;
+    int remainingSPs = 0;
+    leveldb::WriteBatch commitBatch;
+
+    leveldb::ReadOptions readOpts;
+    readOpts.fill_cache = false;
+    leveldb::Iterator *iter = pDb->NewIterator(readOpts);
+    for (iter->Seek("sp-"); iter->Valid() && iter->key().starts_with("sp-"); iter->Next()) {
+      // parse the encoded json, failing if it doesnt parse or is an object
+      Value spInfoVal;
+      if (read_string(iter->value().ToString(), spInfoVal) && spInfoVal.type() == obj_type ) {
+        Entry info;
+        info.fromJSON(spInfoVal.get_obj());
+        if (info.update_block == block_hash) {
+          // need to roll this SP back
+          if (info.update_block == info.creation_block) {
+            // this is the block that created this SP, so delete the SP and the tx index entry
+            string txIndexKey = (boost::format(FORMAT_BOOST_TXINDEXKEY) % info.txid.ToString() ).str();
+            commitBatch.Delete(iter->key());
+            commitBatch.Delete(txIndexKey);
+          } else {
+            std::vector<std::string> vstr;
+            std::string key = iter->key().ToString();
+            boost::split(vstr, key, boost::is_any_of("-"), token_compress_on);
+            unsigned int propertyID = boost::lexical_cast<unsigned int>(vstr[1]);
+
+            string spPrevKey = (boost::format("blk-%s:sp-%d") % info.update_block.ToString() % propertyID).str();
+            string spPrevValue;
+
+            if (false == pDb->Get(readOpts, spPrevKey, &spPrevValue).IsNotFound()) {
+              // copy the prev state to the current state and delete the old state
+              commitBatch.Put(iter->key(), spPrevValue);
+              commitBatch.Delete(spPrevKey);
+              remainingSPs++;
+            } else {
+              // failed to find a previous SP entry, trigger reparse
+              res = -1;
+            }
+          }
+        } else {
+          remainingSPs++;
+        }
+      } else {
+        // failed to parse the db json, trigger reparse
+        res = -1;
+      }
+    }
+
+    // clean up the iterator
+    delete iter;
+
+    leveldb::WriteOptions writeOptions;
+    writeOptions.sync = true;
+
+    pDb->Write(writeOptions, &commitBatch);
+
+    if (res < 0) {
+      return res;
+    } else {
+      return remainingSPs;
+    }
+  }
+
+  static string const watermarkKey;
+  void setWatermark(uint256 const &watermark)
+  {
+    leveldb::WriteOptions writeOptions;
+    writeOptions.sync = true;
+
+    leveldb::WriteBatch commitBatch;
+    commitBatch.Delete(watermarkKey);
+    commitBatch.Put(watermarkKey, watermark.ToString());
+    pDb->Write(writeOptions, &commitBatch);
+  }
+
+  int getWatermark(uint256 &watermark)
+  {
+    leveldb::ReadOptions readOpts;
+    readOpts.fill_cache = false;
+    string watermarkVal;
+    if (pDb->Get(readOpts, watermarkKey, &watermarkVal).ok()) {
+      watermark.SetHex(watermarkVal);
+      return 0;
+    } else {
+      return -1;
+    }
   }
 
   void printAll()
@@ -1075,8 +1196,13 @@ public:
         }
       }
     }
+
+    // clean up the iterator
+    delete iter;
   }
 };
+
+string const CMPSPInfo::watermarkKey("watermark");
 
 CCriticalSection cs_tally;
 
@@ -1998,7 +2124,7 @@ int calculateFractional(unsigned short int propType, unsigned char bonusPerc, ui
   return missedTokens;
 }
 
-void eraseMaxedCrowdsale(const string &address, uint64_t blockTime)
+void eraseMaxedCrowdsale(const string &address, uint64_t blockTime, int block)
 {
     CrowdMap::iterator it = my_crowds.find(address);
     
@@ -2021,6 +2147,7 @@ void eraseMaxedCrowdsale(const string &address, uint64_t blockTime)
       sp.timeclosed = blockTime;
       
       //update SP with this data
+      sp.update_block = chainActive[block]->GetBlockHash();
       _my_sps->updateSP(crowd.getPropertyId() , sp);
       
       //No calculate fractional calls here, no more tokens (at MAX)
@@ -2028,8 +2155,10 @@ void eraseMaxedCrowdsale(const string &address, uint64_t blockTime)
       my_crowds.erase(it);
     }
 }
-unsigned int eraseExpiredCrowdsale(const int64_t blockTime)
+
+unsigned int eraseExpiredCrowdsale(CBlockIndex const * pBlockIndex)
 {
+  const int64_t blockTime = pBlockIndex->GetBlockTime();
 unsigned int how_many_erased = 0;
 CrowdMap::iterator my_it = my_crowds.begin();
 
@@ -2071,7 +2200,8 @@ CrowdMap::iterator my_it = my_crowds.begin();
       sp.historicalData = crowd.getDatabase();
 
       //update SP with this data
-      _my_sps->updateSP(crowd.getPropertyId() , sp);
+      sp.update_block = pBlockIndex->GetBlockHash();
+     _my_sps->updateSP(crowd.getPropertyId() , sp);
 
       //update values
       update_tally_map(sp.issuer, crowd.getPropertyId(), missedTokens, MONEY);
@@ -2465,7 +2595,7 @@ public:
 
             // close crowdsale if we hit MAX_TOKENS
             if( close_crowdsale ) {
-              eraseMaxedCrowdsale(receiver, blockTime);
+              eraseMaxedCrowdsale(receiver, blockTime, block);
             }
           }
         }
@@ -2929,6 +3059,7 @@ https://github.com/mastercoin-MSC/spec/issues/170
     dataPt.push_back(0);
     string txidStr = txid.ToString();
     sp.historicalData.insert(std::make_pair(txidStr, dataPt));
+    sp.update_block = chainActive[block]->GetBlockHash();
     _my_sps->updateSP(currency, sp);
 
     return rc;
@@ -2981,6 +3112,7 @@ https://github.com/mastercoin-MSC/spec/issues/170
     dataPt.push_back(nValue);
     string txidStr = txid.ToString();
     sp.historicalData.insert(std::make_pair(txidStr, dataPt));
+    sp.update_block = chainActive[block]->GetBlockHash();
     _my_sps->updateSP(currency, sp);
 
     rc = 0;
@@ -3061,6 +3193,7 @@ https://github.com/mastercoin-MSC/spec/issues/170
         newSP.url.assign(url);
         newSP.data.assign(data);
         newSP.fixed = true;
+        newSP.creation_block = newSP.update_block = chainActive[block]->GetBlockHash();
 
         const unsigned int id = _my_sps->putSP(ecosystem, newSP);
         update_tally_map(sender, id, nValue, MONEY);
@@ -3101,6 +3234,7 @@ https://github.com/mastercoin-MSC/spec/issues/170
         newSP.deadline = deadline;
         newSP.early_bird = early_bird;
         newSP.percentage = percentage;
+        newSP.creation_block = newSP.update_block = chainActive[block]->GetBlockHash();
 
         const unsigned int id = _my_sps->putSP(ecosystem, newSP);
         my_crowds.insert(std::make_pair(sender, CMPCrowd(id, nValue, currency, deadline, early_bird, percentage, 0, 0)));
@@ -3152,10 +3286,10 @@ https://github.com/mastercoin-MSC/spec/issues/170
         //fprintf(mp_fp,"\nValues coming out of calculateFractional(): Total tokens, Tokens created, Tokens for issuer, amountMissed: issuer %s %ld %ld %ld %f\n",sp.issuer.c_str(), crowd.getUserCreated() + crowd.getIssuerCreated(), crowd.getUserCreated(), crowd.getIssuerCreated(), missedTokens);
         
         sp.historicalData = crowd.getDatabase();
+        sp.update_block = chainActive[block]->GetBlockHash();
         sp.close_early = 1;
         sp.timeclosed = blockTime;
         sp.txid_close = txid;
-
         _my_sps->updateSP(crowd.getPropertyId() , sp);
         
         update_tally_map(sp.issuer, crowd.getPropertyId(), missedTokens, MONEY);
@@ -3595,52 +3729,6 @@ const unsigned int currency = MASTERCOIN_CURRENCY_MSC;  // FIXME: hard-coded for
   return (my_addresses_count);
 }
 
-int mastercore_handler_block_begin(int nBlockNow, CBlockIndex const * pBlockIndex)
-{
-  if (0 < nBlockTop) if (nBlockTop < nBlockNow) return 0;
-
-  (void) eraseExpiredCrowdsale(pBlockIndex->GetBlockTime());
-
-  return 0;
-}
-
-// called once per block, after the block has been processed
-// TODO: consolidate into *handler_block_begin() << need to adjust Accept expiry check.............
-// it performs cleanup and other functions
-int mastercore_handler_block_end(int nBlockNow, CBlockIndex const * pBlockIndex, unsigned int countMP)
-{
-  if (!mastercoreInitialized) {
-    mastercore_init();
-  }
-
-  if (0 < nBlockTop) if (nBlockTop < nBlockNow) return 0;
-
-// for every new received block must do:
-// 1) remove expired entries from the accept list (per spec accept entries are valid until their blocklimit expiration; because the customer can keep paying BTC for the offer in several installments)
-// 2) update the amount in the Exodus address
-uint64_t devmsc = 0;
-unsigned int how_many_erased = eraseExpiredAccepts(nBlockNow);
-
-  if (how_many_erased) fprintf(mp_fp, "%s(%d); erased %u accepts this block, line %d, file: %s\n",
-   __FUNCTION__, how_many_erased, nBlockNow, __LINE__, __FILE__);
-
-  // calculate devmsc as of this block and update the Exodus' balance
-  devmsc = calculate_and_update_devmsc(pBlockIndex->GetBlockTime());
-
-  if (msc_debug_exo) fprintf(mp_fp, "devmsc for block %d: %lu, Exodus balance: %lu\n",
-   nBlockNow, devmsc, getMPbalance(exodus, MASTERCOIN_CURRENCY_MSC, MONEY));
-
-  // get the total MSC for this wallet, for QT display
-  (void) set_wallet_totals();
-//  printf("the globals: MSC_total= %lu, MSC_RESERVED_total= %lu\n", global_MSC_total, global_MSC_RESERVED_total);
-
-  if (mp_fp) fflush(mp_fp);
-
-  // save out the state after this block
-  if (writePersistence(nBlockNow)) mastercore_save_state(pBlockIndex);
-
-  return 0;
-}
 
 static void prepareObfuscatedHashes(const string &address, string (&ObfsHashes)[1+MAX_SHA256_OBFUSCATION_TIMES])
 {
@@ -4629,7 +4717,7 @@ static char const * const statePrefix[NUM_FILETYPES] = {
     "balances",
     "offers",
     "accepts",
-    "devmsc",
+    "globals",
     "crowdsales",
 };
 
@@ -4637,27 +4725,96 @@ static char const * const statePrefix[NUM_FILETYPES] = {
 static int load_most_relevant_state()
 {
   int res = -1;
-  // get the tip of the current best chain
-  CBlockIndex const *curTip = chainActive.Tip();
+  // check the SP database and roll it back to its latest valid state
+  // according to the active chain
+  uint256 spWatermark;
+  if (0 > _my_sps->getWatermark(spWatermark)) {
+    //trigger a full reparse, if the SP database has no watermark
+    return -1;
+  }
 
-  // walk backwards until we find a valid and full set of persisted state files
-  while (NULL != curTip) {
-    int success = -1;
-    for (int i = 0; i < NUM_FILETYPES; ++i) {
-      const string filename = (MPPersistencePath / (boost::format("%s-%s.dat") % statePrefix[i] % curTip->GetBlockHash().ToString()).str().c_str()).string();
-      success = msc_file_load(filename, i, true);
-      if (success < 0) {
-        break;
-      }
+  CBlockIndex const *spBlockIndex = mapBlockIndex[spWatermark];
+  if (NULL == spBlockIndex) {
+    //trigger a full reparse, if the watermark isn't a real block
+    return -1;
+  }
+
+  while(false == chainActive.Contains(spBlockIndex)) {
+    int remainingSPs = _my_sps->popBlock(*spBlockIndex->phashBlock);
+    if (remainingSPs < 0) {
+      // trigger a full reparse, if the levelDB cannot roll back
+      return -1;
+    } /*else if (remainingSPs == 0) {
+      // potential optimization here?
+    }*/
+    spBlockIndex = spBlockIndex->pprev;
+    _my_sps->setWatermark(*spBlockIndex->phashBlock);
+  }
+
+  // prepare a set of available files by block hash pruning any that are
+  // not in the active chain
+  std::set<uint256> persistedBlocks;
+  boost::filesystem::directory_iterator dIter(MPPersistencePath);
+  boost::filesystem::directory_iterator endIter;
+  for (; dIter != endIter; ++dIter) {
+    if (false == boost::filesystem::is_regular_file(dIter->status()) || dIter->path().empty()) {
+      // skip funny business
+      continue;
     }
 
-    if (success >= 0) {
-      res = curTip->nHeight;
-      break;
+    std::string fName = (*--dIter->path().end()).c_str();
+    std::vector<std::string> vstr;
+    boost::split(vstr, fName, boost::is_any_of("-."), token_compress_on);
+    if (  vstr.size() == 3 &&
+          boost::equals(vstr[2], "dat")) {
+      uint256 blockHash;
+      blockHash.SetHex(vstr[1]);
+      CBlockIndex *pBlockIndex = mapBlockIndex[blockHash];
+      if (pBlockIndex == NULL || false == chainActive.Contains(pBlockIndex)) {
+        continue;
+      }
+
+      // this is a valid block in the active chain, store it
+      persistedBlocks.insert(blockHash);
+    }
+  }
+
+  // using the SP's watermark after its fixed-up as the tip
+  // walk backwards until we find a valid and full set of persisted state files
+  // for each block we discard, roll back the SP database
+  CBlockIndex const *curTip = spBlockIndex;
+  while (NULL != curTip && persistedBlocks.size() > 0) {
+    if (persistedBlocks.find(*spBlockIndex->phashBlock) != persistedBlocks.end()) {
+      int success = -1;
+      for (int i = 0; i < NUM_FILETYPES; ++i) {
+        const string filename = (MPPersistencePath / (boost::format("%s-%s.dat") % statePrefix[i] % curTip->GetBlockHash().ToString()).str().c_str()).string();
+        success = msc_file_load(filename, i, true);
+        if (success < 0) {
+          break;
+        }
+      }
+
+      if (success >= 0) {
+        res = curTip->nHeight;
+        break;
+      }
+
+      // remove this from the persistedBlock Set
+      persistedBlocks.erase(*spBlockIndex->phashBlock);
     }
 
     // go to the previous block
+    if (0 > _my_sps->popBlock(*curTip->phashBlock)) {
+      // trigger a full reparse, if the levelDB cannot roll back
+      return -1;
+    }
     curTip = curTip->pprev;
+    _my_sps->setWatermark(*curTip->phashBlock);
+  }
+
+  if (persistedBlocks.size() == 0) {
+    // trigger a reparse if we exhausted the persistence files without success
+    return -1;
   }
 
   // return the height of the block we settled at
@@ -4898,8 +5055,20 @@ int mastercore_save_state( CBlockIndex const *pBlockIndex )
   // clean-up the directory
   prune_state_files(pBlockIndex);
 
+  _my_sps->setWatermark(*pBlockIndex->phashBlock);
+
   return 0;
 }
+
+static void clear_all_state() {
+  mp_tally_map.clear();
+  my_offers.clear();
+  my_accepts.clear();
+  my_crowds.clear();
+  _my_sps->clear();
+  exodus_prev = 0;
+}
+
 
 // called from init.cpp of Bitcoin Core
 int mastercore_init()
@@ -4953,6 +5122,10 @@ int mastercore_init()
   if (readPersistence())
   {
     nWaterlineBlock = load_most_relevant_state();
+    if (nWaterlineBlock < 0) {
+      // persistence says we reparse!, nuke some stuff in case the partial loads left stale bits
+      clear_all_state();
+    }
 
     if (nWaterlineBlock < snapshotHeight)
     {
@@ -5057,6 +5230,11 @@ int mastercore_shutdown()
     fclose(mp_fp);
 #endif
     mp_fp = NULL;
+  }
+
+  if (_my_sps)
+  {
+    delete _my_sps; _my_sps = NULL;
   }
 
   return 0;
@@ -7677,19 +7855,99 @@ std::string CScript::mscore_parse(std::vector<std::string>&msc_parsed, bool bNoB
     return str;
 }
 
-int mastercore_handler_disc_begin(int nBlockNow, CBlockIndex const * pBlockIndex) { return 0; }
+int mastercore_handler_block_begin(int nBlockPrev, CBlockIndex const * pBlockIndex) {
+  if (reorgRecoveryMode > 0) {
+    reorgRecoveryMode = 0;  // clear reorgRecovery here as this is likely re-entrant
+
+    // reset states
+    clear_all_state();
+    p_txlistdb->isMPinBlockRange(pBlockIndex->nHeight, reorgRecoveryMaxHeight, true);
+    reorgRecoveryMaxHeight = 0;
+
+
+    nWaterlineBlock = GENESIS_BLOCK - 1;
+    if (isNonMainNet()) nWaterlineBlock = START_TESTNET_BLOCK - 1;
+    if (RegTest()) nWaterlineBlock = START_REGTEST_BLOCK - 1;
+
+
+    if(readPersistence()) {
+      int best_state_block = load_most_relevant_state();
+      if (best_state_block < 0) {
+        // unable to recover easily, remove stale stale state bits and reparse from the beginning.
+        clear_all_state();
+      } else {
+        nWaterlineBlock = best_state_block;
+      }
+    }
+
+    if (nWaterlineBlock < nBlockPrev) {
+      // scan from the block after the best active block to catch up to the active chain
+      msc_initial_scan(nWaterlineBlock + 1);
+    }
+  }
+
+  if (0 < nBlockTop)
+    if (nBlockTop < nBlockPrev + 1)
+      return 0;
+
+  (void) eraseExpiredCrowdsale(pBlockIndex);
+
+  return 0;
+}
+
+// called once per block, after the block has been processed
+// TODO: consolidate into *handler_block_begin() << need to adjust Accept expiry check.............
+// it performs cleanup and other functions
+int mastercore_handler_block_end(int nBlockNow, CBlockIndex const * pBlockIndex,
+    unsigned int countMP) {
+  if (!mastercoreInitialized) {
+    mastercore_init();
+  }
+
+  if (0 < nBlockTop)
+    if (nBlockTop < nBlockNow)
+      return 0;
+
+// for every new received block must do:
+// 1) remove expired entries from the accept list (per spec accept entries are valid until their blocklimit expiration; because the customer can keep paying BTC for the offer in several installments)
+// 2) update the amount in the Exodus address
+  uint64_t devmsc = 0;
+  unsigned int how_many_erased = eraseExpiredAccepts(nBlockNow);
+
+  if (how_many_erased)
+    fprintf(mp_fp, "%s(%d); erased %u accepts this block, line %d, file: %s\n",
+        __FUNCTION__, how_many_erased, nBlockNow, __LINE__, __FILE__);
+
+  // calculate devmsc as of this block and update the Exodus' balance
+  devmsc = calculate_and_update_devmsc(pBlockIndex->GetBlockTime());
+
+  if (msc_debug_exo)
+    fprintf(mp_fp, "devmsc for block %d: %lu, Exodus balance: %lu\n", nBlockNow,
+        devmsc, getMPbalance(exodus, MASTERCOIN_CURRENCY_MSC, MONEY));
+
+  // get the total MSC for this wallet, for QT display
+  (void) set_wallet_totals();
+//  printf("the globals: MSC_total= %lu, MSC_RESERVED_total= %lu\n", global_MSC_total, global_MSC_RESERVED_total);
+
+  if (mp_fp)
+    fflush(mp_fp);
+
+  // save out the state after this block
+  if (writePersistence(nBlockNow))
+    mastercore_save_state(pBlockIndex);
+
+  return 0;
+}
+
+
+int mastercore_handler_disc_begin(int nBlockNow, CBlockIndex const * pBlockIndex)
+{
+    reorgRecoveryMode = 1;
+    reorgRecoveryMaxHeight = (pBlockIndex->nHeight > reorgRecoveryMaxHeight) ? pBlockIndex->nHeight: reorgRecoveryMaxHeight;
+    return 0;
+}
 
 int mastercore_handler_disc_end(int nBlockNow, CBlockIndex const * pBlockIndex) {
-    printf("\n BLOCK DISCONNECTED: blockinfo %s \n", pBlockIndex->ToString().c_str() );
-
-    //delete entry from MP_txlist
-    bool foundMPTX = p_txlistdb->isMPinBlockRange(pBlockIndex->nHeight, pBlockIndex->nHeight, false);
-    if( foundMPTX ) {
-      printf("\n  MProtocol TX was found in orphaned block, please remove ~/.bitcoin/MP_* and restart your client. \n");
-      fprintf(mp_fp,"\n  MProtocol TX was found in orphaned block, please remove ~/.bitcoin/MP_* and restart your client. \n");
-      AbortNode("\n  MProtocol TX was found in orphaned block, please remove ~/.bitcoin/MP_* and restart your client. \n");
-    }
-    
     return 0;
 }
 
