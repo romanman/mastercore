@@ -6762,6 +6762,6 @@ unsigned int CMPSPInfo::putSP(unsigned char ecosystem, Entry const &info)
 
 const std::string ExodusAddress()
 {
-  return ("hahaha");
+  return string(exodus_address);
 }
 
