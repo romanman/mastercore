@@ -347,6 +347,8 @@ public:
   std::string ToString() const;
 };
 
+
+
 // live crowdsales are these objects in a map
 class CMPCrowd
 {
@@ -435,6 +437,7 @@ public:
   }
 };  // end of CMPCrowd class
 
+
 class CMPSPInfo
 {
 public:
@@ -464,6 +467,8 @@ public:
 
     // other information
     uint256 txid;
+    uint256 creation_block;
+    uint256 update_block;
     bool fixed;
     bool manual;
 
@@ -490,6 +495,8 @@ public:
     , timeclosed(0)
     , txid_close()
     , txid()
+    , creation_block()
+    , update_block()
     , fixed(false)
     , manual(false)
     , historicalData()
@@ -508,6 +515,8 @@ public:
       spInfo.push_back(Pair("url", url));
       spInfo.push_back(Pair("data", data));
       spInfo.push_back(Pair("fixed", fixed));
+      spInfo.push_back(Pair("manual", manual));
+
       spInfo.push_back(Pair("num_tokens", (boost::format("%d") % num_tokens).str()));
       if (false == fixed && false == manual) {
         spInfo.push_back(Pair("currency_desired", (uint64_t)currency_desired));
@@ -549,9 +558,8 @@ public:
 
       spInfo.push_back(Pair("historicalData", values_long));
       spInfo.push_back(Pair("txid", (boost::format("%s") % txid.ToString()).str()));
-      spInfo.push_back(Pair("manual", manual));
-
-
+      spInfo.push_back(Pair("creation_block", (boost::format("%s") % creation_block.ToString()).str()));
+      spInfo.push_back(Pair("update_block", (boost::format("%s") % update_block.ToString()).str()));
       return spInfo;
     }
 
@@ -567,11 +575,7 @@ public:
       url = json[idx++].value_.get_str();
       data = json[idx++].value_.get_str();
       fixed = json[idx++].value_.get_bool();
-      if (fixed || json.size() < 16) {
-        manual = json[12].value_.get_bool();
-      } else {
-        manual = false;
-      }
+      manual = json[idx++].value_.get_bool();
 
       num_tokens = boost::lexical_cast<uint64_t>(json[idx++].value_.get_str());
       if (false == fixed && false == manual) {
@@ -625,7 +629,8 @@ public:
       }
       //fprintf(mp_fp,"\nDATABASE DESERIALIZE SUCCESS %lu", database.size());
       txid = uint256(json[idx++].value_.get_str());
-      idx++; // increment for manual that had to be parsed earlier for logic
+      creation_block = uint256(json[idx++].value_.get_str());
+      update_block = uint256(json[idx++].value_.get_str());
     }
 
     bool isDivisible() const
@@ -655,6 +660,7 @@ public:
 
 private:
   leveldb::DB *pDb;
+  boost::filesystem::path const path;
 
   // implied version of msc and tmsc so they don't hit the leveldb
   Entry implied_msc;
@@ -663,19 +669,29 @@ private:
   unsigned int next_spid;
   unsigned int next_test_spid;
 
-public:
-
-  CMPSPInfo(const boost::filesystem::path &path)
-  {
+  void openDB() {
     leveldb::Options options;
     options.paranoid_checks = true;
     options.create_if_missing = true;
 
     leveldb::Status s = leveldb::DB::Open(options, path.string(), &pDb);
 
-    if (false == s.ok()) {
-      printf("Failed to create or read LevelDB for Smart Property at %s", path.c_str());
-    }
+     if (false == s.ok()) {
+       printf("Failed to create or read LevelDB for Smart Property at %s", path.c_str());
+     }
+  }
+
+  void closeDB() {
+    delete pDb;
+    pDb = NULL;
+  }
+
+public:
+
+  CMPSPInfo(const boost::filesystem::path &_path)
+    : path(_path)
+  {
+    openDB();
 
     // special cases for constant SPs MSC and TMSC
     implied_msc.issuer = ExodusAddress();
@@ -700,14 +716,20 @@ public:
 
   ~CMPSPInfo()
   {
-    delete pDb;
-    pDb = NULL;
+    closeDB();
   }
 
   void init(unsigned int nextSPID = 0x3UL, unsigned int nextTestSPID = TEST_ECO_PROPERTY_1)
   {
     next_spid = nextSPID;
     next_test_spid = nextTestSPID;
+  }
+
+  void clear() {
+    closeDB();
+    leveldb::DestroyDB(path.string(), leveldb::Options());
+    openDB();
+    init();
   }
 
   unsigned int peekNextSPID(unsigned char ecosystem)
@@ -776,11 +798,11 @@ public:
     string spKey = (boost::format(FORMAT_BOOST_SPKEY) % spid).str();
     leveldb::Iterator *iter = pDb->NewIterator(readOpts);
     iter->Seek(spKey);
-    if (iter->Valid() && iter->key().compare(spKey) == 0) {
-      return true;
-    }
+    bool res = (iter->Valid() && iter->key().compare(spKey) == 0);
+    // clean up the iterator
+    delete iter;
 
-    return false;
+    return res;
   }
 
   unsigned int findSPByTX(uint256 const &txid)
@@ -796,6 +818,96 @@ public:
     }
 
     return res;
+  }
+
+  int popBlock(uint256 const &block_hash)
+  {
+    int res = 0;
+    int remainingSPs = 0;
+    leveldb::WriteBatch commitBatch;
+
+    leveldb::ReadOptions readOpts;
+    readOpts.fill_cache = false;
+    leveldb::Iterator *iter = pDb->NewIterator(readOpts);
+    for (iter->Seek("sp-"); iter->Valid() && iter->key().starts_with("sp-"); iter->Next()) {
+      // parse the encoded json, failing if it doesnt parse or is an object
+      Value spInfoVal;
+      if (read_string(iter->value().ToString(), spInfoVal) && spInfoVal.type() == obj_type ) {
+        Entry info;
+        info.fromJSON(spInfoVal.get_obj());
+        if (info.update_block == block_hash) {
+          // need to roll this SP back
+          if (info.update_block == info.creation_block) {
+            // this is the block that created this SP, so delete the SP and the tx index entry
+            string txIndexKey = (boost::format(FORMAT_BOOST_TXINDEXKEY) % info.txid.ToString() ).str();
+            commitBatch.Delete(iter->key());
+            commitBatch.Delete(txIndexKey);
+          } else {
+            std::vector<std::string> vstr;
+            std::string key = iter->key().ToString();
+            boost::split(vstr, key, boost::is_any_of("-"), token_compress_on);
+            unsigned int propertyID = boost::lexical_cast<unsigned int>(vstr[1]);
+
+            string spPrevKey = (boost::format("blk-%s:sp-%d") % info.update_block.ToString() % propertyID).str();
+            string spPrevValue;
+
+            if (false == pDb->Get(readOpts, spPrevKey, &spPrevValue).IsNotFound()) {
+              // copy the prev state to the current state and delete the old state
+              commitBatch.Put(iter->key(), spPrevValue);
+              commitBatch.Delete(spPrevKey);
+              remainingSPs++;
+            } else {
+              // failed to find a previous SP entry, trigger reparse
+              res = -1;
+            }
+          }
+        } else {
+          remainingSPs++;
+        }
+      } else {
+        // failed to parse the db json, trigger reparse
+        res = -1;
+      }
+    }
+
+    // clean up the iterator
+    delete iter;
+
+    leveldb::WriteOptions writeOptions;
+    writeOptions.sync = true;
+
+    pDb->Write(writeOptions, &commitBatch);
+
+    if (res < 0) {
+      return res;
+    } else {
+      return remainingSPs;
+    }
+  }
+
+  static string const watermarkKey;
+  void setWatermark(uint256 const &watermark)
+  {
+    leveldb::WriteOptions writeOptions;
+    writeOptions.sync = true;
+
+    leveldb::WriteBatch commitBatch;
+    commitBatch.Delete(watermarkKey);
+    commitBatch.Put(watermarkKey, watermark.ToString());
+    pDb->Write(writeOptions, &commitBatch);
+  }
+
+  int getWatermark(uint256 &watermark)
+  {
+    leveldb::ReadOptions readOpts;
+    readOpts.fill_cache = false;
+    string watermarkVal;
+    if (pDb->Get(readOpts, watermarkKey, &watermarkVal).ok()) {
+      watermark.SetHex(watermarkVal);
+      return 0;
+    } else {
+      return -1;
+    }
   }
 
   void printAll()
@@ -833,8 +945,12 @@ public:
         }
       }
     }
+
+    // clean up the iterator
+    delete iter;
   }
 };
+
 
 typedef std::map<string, CMPCrowd> CrowdMap;
 typedef std::map<string, CMPMetaDEx> MetaDExMap;
@@ -849,12 +965,16 @@ bool IsMyAddress(const std::string &address);
 
 string getLabel(const string &address);
 
+int mastercore_handler_disc_begin(int nBlockNow, CBlockIndex const * pBlockIndex);
+int mastercore_handler_disc_end(int nBlockNow, CBlockIndex const * pBlockIndex);
+int mastercore_handler_block_begin(int nBlockNow, CBlockIndex const * pBlockIndex);
+int mastercore_handler_block_end(int nBlockNow, CBlockIndex const * pBlockIndex, unsigned int);
 int mastercore_handler_tx(const CTransaction &tx, int nBlock, unsigned int idx, CBlockIndex const *pBlockIndex );
 int mastercore_save_state( CBlockIndex const *pBlockIndex );
 
 namespace mastercore
 {
-int msc_GetHeight(void);
+int GetHeight(void);
 bool isPropertyDivisible(unsigned int propertyId);
 
 extern std::map<string, CMPTally> mp_tally_map;
