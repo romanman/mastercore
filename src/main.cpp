@@ -58,7 +58,7 @@ unsigned int nCoinCacheSize = 5000;
 /** Fees smaller than this (in satoshi) are considered zero fee (for transaction creation) */
 int64_t CTransaction::nMinTxFee = 10000;  // Override with -mintxfee
 /** Fees smaller than this (in satoshi) are considered zero fee (for relaying and mining) */
-int64_t CTransaction::nMinRelayTxFee = 1000;
+int64_t CTransaction::nMinRelayTxFee = 1001; // Override with -minrelaytxfee
 
 static CMedianFilter<int> cPeerBlockCounts(8, 0); // Amount of blocks that other nodes claim to have
 
@@ -2000,7 +2000,7 @@ bool static DisconnectTip(CValidationState &state) {
 // Connect a new block to chainActive.
 bool static ConnectTip(CValidationState &state, CBlockIndex *pindexNew) {
     assert(pindexNew->pprev == chainActive.Tip());
-    printf("\nConnectTip() called... (%s)\n", pindexNew->GetBlockHash().ToString().c_str());
+//    printf("\nConnectTip() called... (%s)\n", pindexNew->GetBlockHash().ToString().c_str());
     (void) mastercore_handler_block_begin(GetHeight(), pindexNew);
     mempool.check(pcoinsTip);
     // Read block from disk.

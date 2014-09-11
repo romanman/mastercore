@@ -73,7 +73,7 @@ using namespace leveldb;
 static const int nBlockTop = 0;
 // static const int nBlockTop = 271000;
 
-int nWaterlineBlock = 0;  //
+static int nWaterlineBlock = 0;  //
 
 // uint64_t global_MSC_total = 0;
 // uint64_t global_MSC_RESERVED_total = 0;
@@ -173,6 +173,33 @@ static bool writePersistence(int block_now)
   return true;
 }
 
+// copied from ShrinkDebugFile, util.cpp
+static void ShrinkMasterCoreDebugFile()
+{
+    // Scroll debug.log if it's getting too big
+#ifndef  DISABLE_LOG_FILE
+    boost::filesystem::path pathLog = GetDataDir() / "mastercore.log";
+    FILE* file = fopen(pathLog.string().c_str(), "r");
+    if (file && boost::filesystem::file_size(pathLog) > 50 * 1000000) // 50 MBytes
+    {
+        // Restart the file with some of the end
+        char pch[800000];
+        fseek(file, -sizeof(pch), SEEK_END);
+        int nBytes = fread(pch, 1, sizeof(pch), file);
+        fclose(file);
+
+        file = fopen(pathLog.string().c_str(), "w");
+        if (file)
+        {
+            fwrite(pch, 1, nBytes, file);
+            fclose(file);
+        }
+    }
+    else if (file != NULL)
+        fclose(file);
+#endif
+}
+
 string strMPCurrency(unsigned int i)
 {
 string str = "*unknown*";
@@ -208,7 +235,7 @@ char *c_strMastercoinType(int i)
     case MSC_TYPE_CREATE_PROPERTY_FIXED: return ((char *)"Create Property - Fixed");
     case MSC_TYPE_CREATE_PROPERTY_VARIABLE: return ((char *)"Create Property - Variable");
     case MSC_TYPE_PROMOTE_PROPERTY: return ((char *)"Promote Property");
-    case MSC_TYPE_CLOSE_CROWDSALE: return ((char *)"Close Crowsale");
+    case MSC_TYPE_CLOSE_CROWDSALE: return ((char *)"Close Crowdsale");
     case MSC_TYPE_CREATE_PROPERTY_MANUAL: return ((char *)"Create Property - Manual");
     case MSC_TYPE_GRANT_PROPERTY_TOKENS: return ((char *)"Grant Property Tokens");
     case MSC_TYPE_REVOKE_PROPERTY_TOKENS: return ((char *)"Revoke Property Tokens");
@@ -257,6 +284,16 @@ void swapByteOrder64(uint64_t& ull)
           (ull << 56);
 }
 
+uint64_t rounduint64(double d)
+{
+  return (uint64_t)(abs(0.5 + d));
+}
+
+bool isNonMainNet()
+{
+  return (TestNet() || RegTest());
+}
+
 // mostly taken from Bitcoin's FormatMoney()
 string FormatDivisibleMP(int64_t n, bool fSign)
 {
@@ -280,6 +317,10 @@ int64_t strToInt64(std::string strAmount, bool divisible)
 {
   int64_t Amount = 0;
 
+  //check for a negative (minus sign) and invalidate if present
+  size_t negSignPos = strAmount.find("-");
+  if (negSignPos!=std::string::npos) return 0;
+
   //convert the string into a usable int64
   if (divisible)
   {
@@ -299,7 +340,7 @@ int64_t strToInt64(std::string strAmount, bool divisible)
               unsigned int zerosToPad = 8-strRightOfDecimal.size();
               if (zerosToPad>0) //do we need to pad?
               {
-                  for(int it = 0; it != zerosToPad; it++)
+                  for(unsigned int it = 0; it != zerosToPad; it++)
                   {
                       strAmount+="0";
                   }
@@ -307,7 +348,7 @@ int64_t strToInt64(std::string strAmount, bool divisible)
           }
           else
           { //there are too many decimals, truncate after 8
-              strAmount = strAmount.substr(pos,pos+8);
+              strAmount = strAmount.substr(0,pos+9);
           }
       }
       strAmount.erase(std::remove(strAmount.begin(), strAmount.end(), '.'), strAmount.end());
@@ -591,6 +632,12 @@ public:
     unsigned char early_bird;
     unsigned char percentage;
 
+    //We need this. Closedearly states if the SP was a crowdsale and closed due to MAXTOKENS or CLOSE command
+    bool close_early;
+    bool max_tokens;
+    uint64_t timeclosed;
+    uint256 txid_close;
+
     // other information
     uint256 txid;
     uint256 creation_block;
@@ -616,6 +663,10 @@ public:
     , deadline(0)
     , early_bird(0)
     , percentage(0)
+    , close_early(0)
+    , max_tokens(0)
+    , timeclosed(0)
+    , txid_close()
     , txid()
     , creation_block()
     , update_block()
@@ -645,6 +696,11 @@ public:
         spInfo.push_back(Pair("deadline", (boost::format("%d") % deadline).str()));
         spInfo.push_back(Pair("early_bird", (int)early_bird));
         spInfo.push_back(Pair("percentage", (int)percentage));
+
+        spInfo.push_back(Pair("close_early", (int)close_early));
+        spInfo.push_back(Pair("max_tokens", (int)max_tokens));
+        spInfo.push_back(Pair("timeclosed", (boost::format("%d") % timeclosed).str()));
+        spInfo.push_back(Pair("txid_close", (boost::format("%s") % txid_close.ToString()).str()));
       }
 
       //Initialize values
@@ -700,6 +756,11 @@ public:
         deadline = boost::lexical_cast<uint64_t>(json[idx++].value_.get_str());
         early_bird = (unsigned char)json[idx++].value_.get_int();
         percentage = (unsigned char)json[idx++].value_.get_int();
+
+        close_early = (unsigned char)json[idx++].value_.get_int();
+        max_tokens = (unsigned char)json[idx++].value_.get_int();
+        timeclosed = boost::lexical_cast<uint64_t>(json[idx++].value_.get_str());
+        txid_close = uint256(json[idx++].value_.get_str());
       }
 
       //reconstruct database
@@ -1165,7 +1226,7 @@ map<string, CMPMetaDEx>::iterator it = metadex.find(combo);
   return (CMPMetaDEx *) NULL;
 }
 
-static uint64_t getGoodDivisionPrecision(uint64_t n1, uint64_t n2)
+static uint64_t getGoodFractionalPartPrecision(uint64_t n1, uint64_t n2)
 {
   if (!n2) return 0;
 
@@ -1192,10 +1253,10 @@ void CMPMetaDEx::Set(uint64_t nValue, uint64_t ad)
   if (ad && nValue) // div by zero protection once more
   {
     price_int   = ad / nValue;
-    price_frac  = getGoodDivisionPrecision(ad, nValue);
+    price_frac  = getGoodFractionalPartPrecision(ad, nValue);
 
     inverse_int = nValue / ad;
-    inverse_frac= getGoodDivisionPrecision(nValue, ad);
+    inverse_frac= getGoodFractionalPartPrecision(nValue, ad);
   }
 }
 
@@ -1876,16 +1937,34 @@ int MetaDEx_Trade(const string &customer, unsigned int currency, unsigned int cu
   return 0;
 }
 
+// bSell = true when selling property for MSC/TMSC
+int MetaDEx_Phase1(const string &addr, unsigned int property, bool bSell, const uint256 &txid, unsigned int idx)
+{
+  fprintf(mp_fp, "%s(%s, bSell=%s), line %d, file: %s\n", __FUNCTION__, addr.c_str(), bSell ? "YES":"NO", __LINE__, __FILE__);
+
+  return 0;
+}
+
 int MetaDEx_Create(const string &sender_addr, unsigned int curr, uint64_t amount, int block, unsigned int currency_desired, uint64_t amount_desired, const uint256 &txid, unsigned int idx)
 {
 int rc = METADEX_ERROR -1;
-uint64_t price_int, price_frac, inverse_int, inverse_frac;
+// uint64_t price_int, price_frac, inverse_int, inverse_frac; // UNUSED WARNING
+bool bPhase1Seller = true; // seller (property for MSC) or buyer (property for MSC); only applies to phase 1 code
 
   if (msc_debug_metadex) fprintf(mp_fp, "%s(%s, %u, %lu)\n", __FUNCTION__, sender_addr.c_str(), curr, amount);
 
+  // MetaDEx implementation phase 1 check
+  if ((curr != MASTERCOIN_CURRENCY_MSC) && (currency_desired != MASTERCOIN_CURRENCY_MSC) &&
+   (curr != MASTERCOIN_CURRENCY_TMSC) && (currency_desired != MASTERCOIN_CURRENCY_TMSC))
+  {
+    return METADEX_ERROR -800;
+  }
+
+  if ((curr == MASTERCOIN_CURRENCY_MSC) || (curr == MASTERCOIN_CURRENCY_TMSC)) bPhase1Seller = false;
+
   const string combo = STR_SELLOFFER_ADDR_CURR_COMBO(sender_addr);
 
-//  (void) MetaDEx_Trade(sender_addr, curr, currency_desired, amount, price_int, price_frac);
+  (void) MetaDEx_Phase1(sender_addr, bPhase1Seller ? curr:currency_desired, bPhase1Seller, txid, idx);
 
   // TODO: add more code
   // ...
@@ -1956,16 +2035,23 @@ int rc = METADEX_ERROR -8;
 // save info from the crowdsale that's being erased
 void dumpCrowdsaleInfo(const string &address, CMPCrowd &crowd, bool bExpired = false)
 {
-  boost::filesystem::path pathTempDead = GetTempPath() / "dead.log";
-  FILE *fp = fopen(pathTempDead.string().c_str(), "a");
+  boost::filesystem::path pathInfo = GetDataDir() / INFO_FILENAME;
+  FILE *fp = fopen(pathInfo.string().c_str(), "a");
 
+  if (!fp)
+  {
+    fprintf(mp_fp, "\nPROBLEM writing %s, errno= %d\n", INFO_FILENAME, errno);
+    return;
+  }
+
+  fprintf(fp, "\n%s\n", DateTimeStrFormat("%Y-%m-%d %H:%M:%S", GetTime()).c_str());
   fprintf(fp, "\nCrowdsale ended: %s\n", bExpired ? "Expired" : "Was closed");
+
   crowd.print(address, fp);
 
   fflush(fp);
   fclose(fp);
 }
-
 
 // calculates and returns fundraiser bonus, issuer premine, and total tokens
 // propType : divisible/indiv
@@ -2038,7 +2124,7 @@ int calculateFractional(unsigned short int propType, unsigned char bonusPerc, ui
   return missedTokens;
 }
 
-void eraseMaxedCrowdsale(const string &address, int block)
+void eraseMaxedCrowdsale(const string &address, uint64_t blockTime, int block)
 {
     CrowdMap::iterator it = my_crowds.find(address);
     
@@ -2056,6 +2142,9 @@ void eraseMaxedCrowdsale(const string &address, int block)
       
       //get txdata
       sp.historicalData = crowd.getDatabase();
+      sp.close_early = 1;
+      sp.max_tokens = 1;
+      sp.timeclosed = blockTime;
       
       //update SP with this data
       sp.update_block = chainActive[block]->GetBlockHash();
@@ -2373,6 +2462,8 @@ public:
   uint64_t getAmount() const { return nValue; }
   uint64_t getNewAmount() const { return nNewValue; }
 
+  string getSPName() const { return string(name); }
+
   void SetNull()
   {
     currency = 0;
@@ -2504,7 +2595,7 @@ public:
 
             // close crowdsale if we hit MAX_TOKENS
             if( close_crowdsale ) {
-              eraseMaxedCrowdsale(receiver, block);
+              eraseMaxedCrowdsale(receiver, blockTime, block);
             }
           }
         }
@@ -2641,7 +2732,7 @@ public:
     return rc;
   }
 
-  int logicMath_SendToOwners()
+  int logicMath_SendToOwners(FILE *fp = NULL)
   {
   int rc = PKT_ERROR_STO -1000;
 
@@ -2700,7 +2791,9 @@ public:
       for(OwnerAddrType::reverse_iterator my_it = OwnerAddrSet.rbegin(); my_it != OwnerAddrSet.rend(); ++my_it)
       {
         n_owners++;
-        printf("#%ld: %lu = %s\n", n_owners, (my_it->first), (my_it->second).c_str());
+
+        // record the detailed info as needed
+        if (fp) fprintf(fp, "#%ld: %lu = %s\n", n_owners, (my_it->first), (my_it->second).c_str());
       }
 
       fprintf(mp_fp, "\t          Owners: %lu\n", n_owners);
@@ -2779,7 +2872,7 @@ public:
 
         if (sent_so_far >= nValue)
         {
-          printf("SendToOwners: DONE HERE : those who could get paid got paid, SOME DID NOT, but that's ok\n");
+          fprintf(mp_fp, "SendToOwners: DONE HERE : those who could get paid got paid, SOME DID NOT, but that's ok\n");
           break; // done here, everybody who could get paid got paid
         }
       }
@@ -2908,23 +3001,23 @@ https://github.com/mastercoin-MSC/spec/issues/170
   }
 
   int logicMath_GrantTokens() {
-    int rc = PKT_ERROR_SP - 1000;
+    int rc = PKT_ERROR_TOKENS - 1000;
 
     if (!isTransactionTypeAllowed(block, currency, type, version)) {
       fprintf(mp_fp, "\tRejecting Grant: Transaction type not yet allowed\n");
-      return (PKT_ERROR_SP - 22);
+      return (PKT_ERROR_TOKENS - 22);
     }
 
     if (sender.empty()) {
       ++InvalidCount_per_spec;
       fprintf(mp_fp, "\tRejecting Grant: Sender is empty\n");
-      return (PKT_ERROR_SP - 23);
+      return (PKT_ERROR_TOKENS - 23);
     }
 
     // manual issuance check
     if (false == _my_sps->hasSP(currency)) {
       fprintf(mp_fp, "\tRejecting Grant: SP id:%d does not exist\n", currency);
-      return (PKT_ERROR_SP - 24);
+      return (PKT_ERROR_TOKENS - 24);
     }
 
     CMPSPInfo::Entry sp;
@@ -2932,14 +3025,14 @@ https://github.com/mastercoin-MSC/spec/issues/170
 
     if (false == sp.manual) {
       fprintf(mp_fp, "\tRejecting Grant: SP id:%d was not issued with a TX 54\n", currency);
-      return (PKT_ERROR_SP - 25);
+      return (PKT_ERROR_TOKENS - 25);
     }
 
 
     // issuer check
     if (false == boost::iequals(sender, sp.issuer)) {
       fprintf(mp_fp, "\tRejecting Grant: %s is not the issuer of SP id:%d\n", sender.c_str(), currency);
-      return (PKT_ERROR_SP - 26);
+      return (PKT_ERROR_TOKENS - 26);
     }
 
     // overflow tokens check
@@ -2951,7 +3044,7 @@ https://github.com/mastercoin-MSC/spec/issues/170
         snprintf(prettyTokens, 256, "%lu", nValue);
       }
       fprintf(mp_fp, "\tRejecting Grant: granting %s tokens on SP id:%d would overflow the maximum limit for tokens in a smart property\n", prettyTokens, currency);
-      return (PKT_ERROR_SP - 27);
+      return (PKT_ERROR_TOKENS - 27);
     }
 
     // grant the tokens
@@ -2973,23 +3066,23 @@ https://github.com/mastercoin-MSC/spec/issues/170
   }
 
   int logicMath_RevokeTokens() {
-    int rc = PKT_ERROR_SP - 1000;
+    int rc = PKT_ERROR_TOKENS - 1000;
 
     if (!isTransactionTypeAllowed(block, currency, type, version)) {
       fprintf(mp_fp, "\tRejecting Revoke: Transaction type not yet allowed\n");
-      return (PKT_ERROR_SP - 22);
+      return (PKT_ERROR_TOKENS - 22);
     }
 
     if (sender.empty()) {
       ++InvalidCount_per_spec;
       fprintf(mp_fp, "\tRejecting Revoke: Sender is empty\n");
-      return (PKT_ERROR_SP - 23);
+      return (PKT_ERROR_TOKENS - 23);
     }
 
     // manual issuance check
     if (false == _my_sps->hasSP(currency)) {
       fprintf(mp_fp, "\tRejecting Revoke: SP id:%d does not exist\n", currency);
-      return (PKT_ERROR_SP - 24);
+      return (PKT_ERROR_TOKENS - 24);
     }
 
     CMPSPInfo::Entry sp;
@@ -2997,20 +3090,20 @@ https://github.com/mastercoin-MSC/spec/issues/170
 
     if (false == sp.manual) {
       fprintf(mp_fp, "\tRejecting Revoke: SP id:%d was not issued with a TX 54\n", currency);
-      return (PKT_ERROR_SP - 25);
+      return (PKT_ERROR_TOKENS - 25);
     }
 
 
     // issuer check
     if (false == boost::iequals(sender, sp.issuer)) {
       fprintf(mp_fp, "\tRejecting Revoke: %s is not the issuer of SP id:%d\n", sender.c_str(), currency);
-      return (PKT_ERROR_SP - 26);
+      return (PKT_ERROR_TOKENS - 26);
     }
 
     // insufficient funds check and revoke
     if (false == update_tally_map(sender, currency, -nValue, MONEY)) {
       fprintf(mp_fp, "\tRejecting Revoke: insufficient funds\n");
-      return (PKT_ERROR_SP - 111);
+      return (PKT_ERROR_TOKENS - 111);
     }
 
     // record this revoke
@@ -3194,6 +3287,9 @@ https://github.com/mastercoin-MSC/spec/issues/170
         
         sp.historicalData = crowd.getDatabase();
         sp.update_block = chainActive[block]->GetBlockHash();
+        sp.close_early = 1;
+        sp.timeclosed = blockTime;
+        sp.txid_close = txid;
         _my_sps->updateSP(crowd.getPropertyId() , sp);
         
         update_tally_map(sp.issuer, crowd.getPropertyId(), missedTokens, MONEY);
@@ -3254,7 +3350,21 @@ https://github.com/mastercoin-MSC/spec/issues/170
       step_rc = step2_Value();
       if (0>step_rc) return step_rc;
 
-      rc = logicMath_SendToOwners();
+      boost::filesystem::path pathOwners = GetDataDir() / OWNERS_FILENAME;
+      FILE *fp = fopen(pathOwners.string().c_str(), "a");
+
+      if (fp)
+      {
+        // TODO: write info line into the file, timestamp, block #, txid etc.........
+      }
+      else
+      {
+        fprintf(mp_fp, "\nPROBLEM writing %s, errno= %d\n", INFO_FILENAME, errno);
+      }
+
+      rc = logicMath_SendToOwners(fp);
+
+      if (fp) fclose(fp);
     }
     break;
 
@@ -3704,6 +3814,11 @@ vector<string>multisig_script_data;
 uint64_t inAll = 0;
 uint64_t outAll = 0;
 uint64_t txFee = 0;
+int p2shAllowed = 0;
+
+            if (P2SH_BLOCK <= nBlock || isNonMainNet()) {
+              p2shAllowed = 1;
+            }
 
             mp_tx->Set(wtx.GetHash(), nBlock, idx, nTime);
 
@@ -3752,7 +3867,7 @@ uint64_t txFee = 0;
                 txnouttype whichType;
                 bool validType = false;
                 if (!getOutputType(wtx.vout[i].scriptPubKey, whichType)) validType=false;
-                if (TX_PUBKEYHASH == whichType) validType=true; // ignore non pay-to-pubkeyhash output
+                if (TX_PUBKEYHASH == whichType || (p2shAllowed && TX_SCRIPTHASH == whichType)) validType=true; // ignore non pay-to-pubkeyhash or pay-to-scripthash output
 
                 strAddress = CBitcoinAddress(dest).ToString();
 
@@ -3815,10 +3930,10 @@ uint64_t txFee = 0;
 
               if (ExtractDestination(txPrev.vout[n].scriptPubKey, source))  // extract the destination of the previous transaction's vout[n]
               {
-                // we only allow pay-to-pubkeyhash & probably pay-to-pubkey (?)
+                // we only allow pay-to-pubkeyhash, pay-to-scripthash & probably pay-to-pubkey (?)
                 {
                   if (!getOutputType(txPrev.vout[n].scriptPubKey, whichType)) ++inputs_errors;
-                  if ((TX_PUBKEYHASH != whichType) /* || (TX_PUBKEY != whichType) */ ) ++inputs_errors;
+                  if ((TX_PUBKEYHASH != whichType && (p2shAllowed && TX_SCRIPTHASH != whichType)) /* || (TX_PUBKEY != whichType) */ ) ++inputs_errors;
 
                   if (inputs_errors) break;
                 }
@@ -3847,8 +3962,9 @@ uint64_t txFee = 0;
 
                 if (nTemp > nMax)
                 {
-                  nMax = nTemp;
                   strSender = my_it->first;
+                  if (msc_debug_exo) fprintf(mp_fp, "looking for The Sender: %s , nMax=%lu, nTemp=%lu\n", strSender.c_str(), nMax, nTemp);
+                  nMax = nTemp;
                 }
             }
 
@@ -3875,7 +3991,7 @@ uint64_t txFee = 0;
               if (MONEYMAN_REGTEST_BLOCK <= nBlock) BTC_amount = TestNetMoneyValues[0];
             }
 
-            fprintf(mp_fp, "%s()amount = %ld , nBlock = %d, line %d, file: %s\n", __FUNCTION__, BTC_amount, nBlock, __LINE__, __FILE__);
+//            fprintf(mp_fp, "%s() amount = %ld , nBlock = %d, line %d, file: %s\n", __FUNCTION__, BTC_amount, nBlock, __LINE__, __FILE__);
 
             if (0 < BTC_amount) (void) TXExodusFundraiser(wtx, strSender, BTC_amount, nBlock, nTime);
 
@@ -3949,7 +4065,7 @@ uint64_t txFee = 0;
               {
                   txnouttype whichType;
                   if (!getOutputType(wtx.vout[k].scriptPubKey, whichType)) break; // unable to determine type, ignore output
-                  if (TX_PUBKEYHASH != whichType) break; // ignore non pay-to-pubkeyhash output
+                  if (TX_PUBKEYHASH != whichType && (p2shAllowed && TX_SCRIPTHASH != whichType)) break; // ignore non pay-to-pubkeyhash output
 
                   string strSub = script_data[k].substr(2,16); // retrieve bytes 1-9 of packet for peek & decode comparison
                   seq = (ParseHex(script_data[k].substr(0,2)))[0]; // retrieve sequence number
@@ -3982,7 +4098,7 @@ uint64_t txFee = 0;
                   {
                       txnouttype whichType;
                       if (!getOutputType(wtx.vout[k].scriptPubKey, whichType)) break; // unable to determine type, ignore output
-                      if (TX_PUBKEYHASH != whichType) break; // ignore non pay-to-pubkeyhash output
+                      if (TX_PUBKEYHASH != whichType && (p2shAllowed && TX_SCRIPTHASH != whichType)) break; // ignore non pay-to-pubkeyhash output
 
                       seq = (ParseHex(script_data[k].substr(0,2)))[0]; // retrieve sequence number
 
@@ -4009,7 +4125,7 @@ uint64_t txFee = 0;
                       {
                           txnouttype whichType;
                           if (!getOutputType(wtx.vout[k].scriptPubKey, whichType)) break; // unable to determine type, ignore output
-                          if (TX_PUBKEYHASH != whichType) break; // ignore non pay-to-pubkeyhash output
+                          if (TX_PUBKEYHASH != whichType && (p2shAllowed && TX_SCRIPTHASH != whichType)) break; // ignore non pay-to-pubkeyhash output
 
                           if ((address_data[k] != strDataAddress) && (address_data[k] != exodus) && (dataAddressValue == value_data[k])) // this output matches data output, check if matches exodus output
                           {
@@ -4957,14 +5073,24 @@ static void clear_all_state() {
 // called from init.cpp of Bitcoin Core
 int mastercore_init()
 {
+  if (mastercoreInitialized) {
+    // nothing to do
+    return 0;
+  }
+
   printf("%s()%s, line %d, file: %s\n", __FUNCTION__, isNonMainNet() ? "TESTNET":"", __LINE__, __FILE__);
 
+  ShrinkMasterCoreDebugFile();
+
 #ifndef  DISABLE_LOG_FILE
-  boost::filesystem::path pathTempLog = GetTempPath() / "mastercore.log";
+  boost::filesystem::path pathTempLog = GetDataDir() / "mastercore.log";
+//  boost::filesystem::path pathTempLog = GetTempPath() / "mastercore.log";
   mp_fp = fopen(pathTempLog.string().c_str(), "a");
 #else
   mp_fp = stdout;
 #endif
+
+  if (!mp_fp) mp_fp = stdout; // dump to terminal if file can't be opened
 
   fprintf(mp_fp, "\n%s MASTERCORE INIT, build date: " __DATE__ " " __TIME__ "\n\n", DateTimeStrFormat("%Y-%m-%d %H:%M:%S", GetTime()).c_str());
 
@@ -5016,7 +5142,12 @@ int mastercore_init()
 
     nWaterlineBlock = GENESIS_BLOCK - 1;  // the DEX block
 
+    if (TestNet()) nWaterlineBlock = START_TESTNET_BLOCK; //testnet3
+
+    if (RegTest()) nWaterlineBlock = START_REGTEST_BLOCK; //testnet3
+
 #ifdef  MY_HACK
+/*
     nWaterlineBlock = MSC_SP_BLOCK-3;
     nWaterlineBlock = MSC_DEX_BLOCK-3;
 //    nWaterlineBlock = 296163 - 3; // bad Deadline
@@ -5026,6 +5157,7 @@ int mastercore_init()
     nWaterlineBlock = 303550;
     nWaterlineBlock = 308500;
     nWaterlineBlock = MSC_DEX_BLOCK-3;
+*/
 
     update_tally_map(exodus, MASTERCOIN_CURRENCY_TMSC, COIN*5678, MONEY); // put some TMSC in, for my hack
     update_tally_map("1PVWtK1ATnvbRaRceLRH5xj8XV1LxUBu7n", MASTERCOIN_CURRENCY_MSC, COIN*123, MONEY);
@@ -5038,11 +5170,11 @@ int mastercore_init()
     update_tally_map("1MCHESTxYkPSLoJ57WBQot7vz3xkNahkcb", MASTERCOIN_CURRENCY_MSC, COIN*678, MONEY);
     update_tally_map("1MCHESTxYkPSLoJ57WBQot7vz3xkNahkcb", MASTERCOIN_CURRENCY_TMSC, COIN*789, MONEY);
     update_tally_map("1MCHESTptvd2LnNp7wmr2sGTpRomteAkq8", 0x80000003, COIN*321, MONEY);
-    nWaterlineBlock = 304000;
+//    nWaterlineBlock = 304000;
 
     update_tally_map("1PfREWL44zJun1MLXkH64s88DSkPZXVxot", MASTERCOIN_CURRENCY_MSC, COIN*123, MONEY);
     update_tally_map("1PfREWL44zJun1MLXkH64s88DSkPZXVxot", MASTERCOIN_CURRENCY_TMSC, COIN*234, MONEY);
-    nWaterlineBlock = 310500;
+//    nWaterlineBlock = 310500;
 
     update_tally_map("18bAjW3tvSX8QK3XLdcApug71nNKmB4jnU", MASTERCOIN_CURRENCY_MSC, COIN*234, MONEY);
     update_tally_map("18bAjW3tvSX8QK3XLdcApug71nNKmB4jnU", MASTERCOIN_CURRENCY_TMSC, COIN*234, MONEY);
@@ -5051,14 +5183,20 @@ int mastercore_init()
 
     update_tally_map("1PRozi3UhpXtC4kZtPD1nfCFXJkXrV27Wp", MASTERCOIN_CURRENCY_MSC, COIN*234, MONEY);
     update_tally_map("1PRozi3UhpXtC4kZtPD1nfCFXJkXrV27Wp", MASTERCOIN_CURRENCY_TMSC, COIN*234, MONEY);
-    nWaterlineBlock = 310000;
+//    nWaterlineBlock = 310000;
 
-    if (isNonMainNet()) nWaterlineBlock = 272700;
+    update_tally_map("mxaYwMv2Brbs7CW9r5aYuEr1jKTSDXg1TH", MASTERCOIN_CURRENCY_TMSC, COIN*234, MONEY);
+    update_tally_map("mxaYwMv2Brbs7CW9r5aYuEr1jKTSDXg1TH", MASTERCOIN_CURRENCY_MSC, COIN*234, MONEY);
+    update_tally_map("mxaYwMv2Brbs7CW9r5aYuEr1jKTSDXg1TH", 2147483652, COIN*234, MONEY);
+    update_tally_map("mxaYwMv2Brbs7CW9r5aYuEr1jKTSDXg1TH", 2147483652, COIN*234, MONEY);
+
+    update_tally_map("mfaiZGBkY4mBqt3PHPD2qWgbaafGa7vR64", MASTERCOIN_CURRENCY_TMSC, COIN*234, MONEY);
+    update_tally_map("mfaiZGBkY4mBqt3PHPD2qWgbaafGa7vR64", MASTERCOIN_CURRENCY_MSC, COIN*234, MONEY);
+    update_tally_map("mfaiZGBkY4mBqt3PHPD2qWgbaafGa7vR64", 2147483652, COIN*234, MONEY);
+    update_tally_map("mfaiZGBkY4mBqt3PHPD2qWgbaafGa7vR64", 2147483652, COIN*234, MONEY);
+
+//    if (isNonMainNet()) nWaterlineBlock = 272700;
 #endif
-
-    if (TestNet()) nWaterlineBlock = START_TESTNET_BLOCK; //testnet3
-
-    if (RegTest()) nWaterlineBlock = START_REGTEST_BLOCK; //testnet3
   }
 
   // collect the real Exodus balances available at the snapshot time
@@ -5170,85 +5308,256 @@ CWallet *wallet = pwalletMain;
 }
 
 //
+// Determines minimum output amount to be spent by an output based on
+// scriptPubKey size in relation to the minimum relay fee.
+// 
+// This method is very related with IsDust(nMinRelayTxFee) in core.h.
+//
+int64_t GetDustLimit(const CScript& scriptPubKey)
+{
+    // The total size is based on a typical scriptSig size of 148 byte,
+    // 8 byte accounted for the size of output value and the serialized
+    // size of scriptPubKey.
+    size_t nSize = ::GetSerializeSize(scriptPubKey, SER_DISK, 0) + 156;
+
+    // The minimum relay fee dictates a threshold value under which a
+    // transaction won't be relayed.
+    int64_t nRelayTxFee = CTransaction::nMinRelayTxFee;
+
+    // A transaction is considered as "dust", if less than 1/3 of the
+    // minimum fee required to relay a transaction is spent by one of
+    // it's outputs. The minimum relay fee is defined per 1000 byte.
+    int64_t nDustLimit = 1 + (((nSize * nRelayTxFee * 3) - 1) / 1000);
+
+    return nDustLimit;
+}
+
+static int selectCoins(const string &FromAddress, CCoinControl &coinControl) {
+  CWallet *wallet = pwalletMain;
+  const int64_t n_max = (COIN * (20 * (0.0001))); // assume 20KBytes max TX size at 0.0001 per kilobyte
+  // FUTURE: remove n_max and try 1st smallest input, then 2 smallest inputs etc. -- i.e. move Coin Control selection closer to CreateTransaction
+  int64_t n_total = 0;  // total output funds collected
+  LOCK(wallet->cs_wallet);
+  {
+    string sAddress = "";
+
+    // iterate over the wallet
+    for (map<uint256, CWalletTx>::iterator it = wallet->mapWallet.begin();
+        it != wallet->mapWallet.end(); ++it) {
+      const uint256& wtxid = it->first;
+      const CWalletTx* pcoin = &(*it).second;
+      bool bIsMine;
+      bool bIsSpent;
+
+      if (pcoin->IsTrusted()) {
+        const int64_t nAvailable = pcoin->GetAvailableCredit();
+
+        if (!nAvailable)
+          continue;
+
+        for (unsigned int i = 0; i < pcoin->vout.size(); i++) {
+          CTxDestination dest;
+
+          if (!ExtractDestination(pcoin->vout[i].scriptPubKey, dest))
+            continue;
+
+          bIsMine = IsMine(*wallet, dest);
+          bIsSpent = wallet->IsSpent(wtxid, i);
+
+          if (!bIsMine || bIsSpent)
+            continue;
+
+          int64_t n = bIsSpent ? 0 : pcoin->vout[i].nValue;
+
+          sAddress = CBitcoinAddress(dest).ToString();
+          if (msc_debug_send)
+            fprintf(mp_fp,
+                "%s:IsMine()=%s:IsSpent()=%s:%s: i=%d, nValue= %lu\n",
+                sAddress.c_str(), bIsMine ? "yes" : "NO",
+                bIsSpent ? "YES" : "no", wtxid.ToString().c_str(), i, n);
+
+          // only use funds from the Sender's address for our MP transaction
+          // TODO: may want to a little more selective here, i.e. use smallest possible (~0.1 BTC), but large amounts lead to faster confirmations !
+          if (FromAddress == sAddress) {
+            COutPoint outpt(wtxid, i);
+            coinControl.Select(outpt);
+
+            n_total += n;
+
+            if (n_max <= n_total)
+              break;
+          }
+        } // for pcoin end
+      }
+
+      if (n_max <= n_total)
+        break;
+    } // for iterate over the wallet end
+  }
+
+  return 0;
+}
+
+#define PUSH_BACK_BYTES(vector, value)\
+    vector.insert(vector.end(), reinterpret_cast<unsigned char *>(&(value)), reinterpret_cast<unsigned char *>(&(value)) + sizeof((value)));
+
+#define PUSH_BACK_BYTES_PTR(vector, ptr, size)\
+    vector.insert(vector.end(), reinterpret_cast<unsigned char *>((ptr)), reinterpret_cast<unsigned char *>((ptr)) + (size));
+
+
+//
 // Do we care if this is true: pubkeys[i].IsCompressed() ???
 // returns 0 if everything is OK, the transaction was sent
-static int ClassB_send(const string &senderAddress, const string &receiverAddress, const string &data_packet, CCoinControl &coinControl, uint256 & txid)
+static int ClassB_send(const string &senderAddress, const string &receiverAddress, const string &redemptionAddress, const vector<unsigned char> &data, uint256 & txid)
 {
-const int n_keys = 2;
-int i = 0;
-std::vector<CPubKey> pubkeys;
-pubkeys.resize(n_keys);
 CWallet *wallet = pwalletMain;
-const int64_t nDustLimit = MP_DUST_LIMIT;
+CCoinControl coinControl;
+vector< pair<CScript, int64_t> > vecSend;
+
+  // pick inputs for this transaction
+  if (0 > selectCoins(senderAddress, coinControl))
+  {
+    return (CLASSB_SEND_ERROR -12);
+  }
 
   txid = 0;
 
+  // determine the redeeming public key for our multisig outputs
   // partially copied from _createmultisig()
+  CBitcoinAddress address;
+  CPubKey redeemingPubKey;
+  if (false == redemptionAddress.empty()) {
+    address.SetString(redemptionAddress);
+  } else {
+    address.SetString(senderAddress);
+  }
 
-  CBitcoinAddress address(senderAddress);
+  // validate that the redemption Address is good
   if (wallet && address.IsValid())
   {
-  CKeyID keyID;
+    if (address.IsScript()) {
 
-    if (!address.GetKeyID(keyID)) return -20;
+    } else {
+      CKeyID keyID;
 
-    CPubKey vchPubKey;
-    if (!wallet->GetPubKey(keyID, vchPubKey)) return -21;
-    if (!vchPubKey.IsFullyValid()) return -22;
+      if (!address.GetKeyID(keyID))
+        return (CLASSB_SEND_ERROR -20);
 
-    pubkeys[i++] = vchPubKey;
+      if (!wallet->GetPubKey(keyID, redeemingPubKey))
+        return (CLASSB_SEND_ERROR -21);
+      if (!redeemingPubKey.IsFullyValid())
+        return (CLASSB_SEND_ERROR -22);
+
+     }
   }
-  else return -23;
+  else return (CLASSB_SEND_ERROR -23);
 
-  pubkeys[i] = ParseHex(data_packet);
+  int nRemainingBytes = data.size();
+  int nNextByte = 0;
+  unsigned char seqNum = 1;
+  string strObfuscatedHashes[1+MAX_SHA256_OBFUSCATION_TIMES];
+  prepareObfuscatedHashes(senderAddress, strObfuscatedHashes);
 
-  // 2nd (& 3rd) is the data packet(s)
-  if (!pubkeys[i].IsFullyValid()) return -1;
+  while (nRemainingBytes > 0) {
+    int nKeys = 1; //assume one key of data since we have data remaining
+    if (nRemainingBytes > (PACKET_SIZE - 1)) {
+      // we have enough data for 2 keys in this output
+      nKeys += 1;
+    }
 
-  CScript multisig_output;
-  multisig_output.SetMultisig(1, pubkeys);
-  printf("%s(): %s, line %d, file: %s\n", __FUNCTION__, multisig_output.ToString().c_str(), __LINE__, __FILE__);
+    vector<CPubKey> keys;
+    // always include the redeeming pubkey
+    keys.push_back(redeemingPubKey);
+
+    int i;
+    for (i = 0; i < nKeys; i++)
+    {
+      // add sequence number
+      vector<unsigned char> fakeKey;
+      fakeKey.push_back(seqNum);
+
+      // add up to 30 bytes of data
+      int numBytes = nRemainingBytes < (PACKET_SIZE - 1) ? nRemainingBytes: (PACKET_SIZE - 1);
+      fakeKey.insert(fakeKey.end(), data.begin() + nNextByte, data.begin() + nNextByte + numBytes);
+      nNextByte += numBytes;
+      nRemainingBytes -= numBytes;
+
+      // pad to 31 total bytes with zeros
+      while (fakeKey.size() < PACKET_SIZE) {
+        fakeKey.push_back(0);
+      }
+
+      // xor in the obfuscation
+      int j;
+      vector<unsigned char>hash = ParseHex(strObfuscatedHashes[seqNum]);
+      for (j = 0; j < PACKET_SIZE; j++) {
+        fakeKey[j] = fakeKey[j] ^ hash[j];
+      }
+
+      // prepend the 2
+      fakeKey.insert(fakeKey.begin(), 2);
+
+      // fix up the ecdsa code point
+      CPubKey pubKey;
+      fakeKey.resize(33);
+      unsigned char random_byte = (unsigned char)(GetRand(256));
+      for (j = 0; i < 256 ; j++)
+      {
+        fakeKey[32] = random_byte;
+
+        pubKey = CPubKey(fakeKey);
+        printf("pubKey check: %s\n", (HexStr(pubKey.begin(), pubKey.end()).c_str()));
+
+        if (pubKey.IsFullyValid()) break;
+
+        ++random_byte; // cycle 256 times, if we must to find a valid ECDSA point
+      }
+
+      keys.push_back(pubKey);
+      seqNum++;
+    }
+
+    CScript multisig_output;
+    multisig_output.SetMultisig(1, keys);
+    vecSend.push_back(make_pair(multisig_output, GetDustLimit(multisig_output)));
+  }
 
   CWalletTx wtxNew;
   int64_t nFeeRet = 0;
-  vector< pair<CScript, int64_t> > vecSend;
   std::string strFailReason;
   CReserveKey reserveKey(wallet);
 
   CBitcoinAddress addr = CBitcoinAddress(senderAddress);  // change goes back to us
   coinControl.destChange = addr.Get();
 
-  if (!wallet) return -5;
+  if (!wallet) return (CLASSB_SEND_ERROR -5);
 
   CScript scriptPubKey;
 
-  // the 1-multisig-2 Class B with data & sender
-  vecSend.push_back(make_pair(multisig_output, nDustLimit));
-
-  // the reference/recepient/receiver
+  // add the the reference/recepient/receiver ouput if needed
   if (!receiverAddress.empty())
   {
     // Send To Owners is the first use case where the receiver is empty
     scriptPubKey.SetDestination(CBitcoinAddress(receiverAddress).Get());
-    vecSend.push_back(make_pair(scriptPubKey, nDustLimit));
+    vecSend.push_back(make_pair(scriptPubKey, GetDustLimit(scriptPubKey)));
   }
 
-  // the marker output
+  // add the marker output
   scriptPubKey.SetDestination(CBitcoinAddress(exodus).Get());
-  vecSend.push_back(make_pair(scriptPubKey, nDustLimit));
+  vecSend.push_back(make_pair(scriptPubKey, GetDustLimit(scriptPubKey)));
 
   // selected in the parent function, i.e.: ensure we are only using the address passed in as the Sender
-  if (!coinControl.HasSelected()) return -6;
+  if (!coinControl.HasSelected()) return (CLASSB_SEND_ERROR -6);
 
   LOCK(wallet->cs_wallet);  // TODO: is this needed?
 
   // the fee will be computed by Bitcoin Core, need an override (?)
   // TODO: look at Bitcoin Core's global: nTransactionFee (?)
-  if (!wallet->CreateTransaction(vecSend, wtxNew, reserveKey, nFeeRet, strFailReason, &coinControl)) return -11;
+  if (!wallet->CreateTransaction(vecSend, wtxNew, reserveKey, nFeeRet, strFailReason, &coinControl)) return (CLASSB_SEND_ERROR -11);
 
   printf("%s():%s; nFeeRet = %lu, line %d, file: %s\n", __FUNCTION__, wtxNew.ToString().c_str(), nFeeRet, __LINE__, __FILE__);
 
-  if (!wallet->CommitTransaction(wtxNew, reserveKey)) return -13;
+  if (!wallet->CommitTransaction(wtxNew, reserveKey)) return (CLASSB_SEND_ERROR -13);
 
   txid = wtxNew.GetHash();
 
@@ -5256,23 +5565,14 @@ const int64_t nDustLimit = MP_DUST_LIMIT;
 }
 
 // WIP: expanding the function to a general-purpose one, but still sending 1 packet only for now (30-31 bytes)
-static uint256 send_INTERNAL_1packet(const string &FromAddress, const string &ToAddress, unsigned int CurrencyID, uint64_t Amount, unsigned int TransactionType)
+static uint256 send_INTERNAL_1packet(const string &FromAddress, const string &ToAddress, const string &RedeemAddress, unsigned int CurrencyID, uint64_t Amount, unsigned int TransactionType, int *error_code = NULL)
 {
 const uint64_t nAvailable = getMPbalance(FromAddress, CurrencyID, MONEY);
-CWallet *wallet = pwalletMain;
-CCoinControl coinControl; // I am using coin control to send from
-int rc = 0;
+int rc = -1;
 uint256 txid = 0;
-// const int64_t n_max = CTransaction::nMinRelayTxFee * 10000; // maximum funds needed to send (insane fee)
-// from http://bitcoinfees.com : 148 * number_of_inputs + 34 * number_of_outputs + 10 // 8KByte fee is enough for 50 inputs & 20 outputs
-const int64_t n_max = (COIN*(20*(0.0001))); // assume 20KBytes max TX size at 0.0001 per kilobyte
-// FUTURE: remove n_max and try 1st smallest input, then 2 smallest inputs etc. -- i.e. move Coin Control selection closer to CreateTransaction
-int64_t n_total = 0;  // total output funds collected
 
-  if (msc_debug_send) fprintf(mp_fp, "%s(From: %s , To: %s , Currency= %u, Amount= %lu); n_max = %ld\n",
-   __FUNCTION__, FromAddress.c_str(), ToAddress.c_str(), CurrencyID, Amount, n_max);
-
-  LOCK(wallet->cs_wallet);
+  if (msc_debug_send) fprintf(mp_fp, "%s(From: %s , To: %s , Currency= %u, Amount= %lu)\n",
+   __FUNCTION__, FromAddress.c_str(), ToAddress.c_str(), CurrencyID, Amount);
 
   // make sure this address has enough MP currency available!
   if ((nAvailable < Amount) || (0 == Amount))
@@ -5281,139 +5581,50 @@ int64_t n_total = 0;  // total output funds collected
     if (msc_debug_send) fprintf(mp_fp, "%s(): aborted -- not enough MP currency (%lu < %lu)\n", __FUNCTION__, nAvailable, Amount);
     ++InvalidCount_per_spec;
 
+    if (error_code) *error_code = rc;
+
     return 0;
   }
 
-    {
-    string sAddress="";
-
-        // iterate over the wallet
-        for (map<uint256, CWalletTx>::iterator it = wallet->mapWallet.begin(); it != wallet->mapWallet.end(); ++it)
-        {
-        const uint256& wtxid = it->first;
-        const CWalletTx* pcoin = &(*it).second;
-        bool bIsMine;
-        bool bIsSpent;
-
-            if (pcoin->IsTrusted())
-            {
-            const int64_t nAvailable = pcoin->GetAvailableCredit();
-
-              if (!nAvailable) continue;
-
-              for (unsigned int i = 0; i < pcoin->vout.size(); i++)
-              {
-                CTxDestination dest;
-
-                if(!ExtractDestination(pcoin->vout[i].scriptPubKey, dest))
-                    continue;
-
-                bIsMine = IsMine(*wallet, dest);
-                bIsSpent = wallet->IsSpent(wtxid, i);
-
-                if (!bIsMine || bIsSpent) continue;
-
-                int64_t n = bIsSpent ? 0 : pcoin->vout[i].nValue;
-
-                sAddress = CBitcoinAddress(dest).ToString();
-                if (msc_debug_send) fprintf(mp_fp, "%s:IsMine()=%s:IsSpent()=%s:%s: i=%d, nValue= %lu\n",
-                 sAddress.c_str(), bIsMine ? "yes":"NO", bIsSpent ? "YES":"no", wtxid.ToString().c_str(), i, n);
-
-                // only use funds from the Sender's address for our MP transaction
-                // TODO: may want to a little more selective here, i.e. use smallest possible (~0.1 BTC), but large amounts lead to faster confirmations !
-                if (FromAddress == sAddress)
-                {
-                  COutPoint outpt(wtxid, i);
-                  coinControl.Select(outpt);
-
-                  n_total += n;
-
-                  if (n_max <= n_total) break;
-                }
-              } // for pcoin end
-            }
-
-          if (n_max <= n_total) break;
-        } // for iterate over the wallet end
-    }
-
-  string strObfuscatedHashes[1+MAX_SHA256_OBFUSCATION_TIMES];
-  prepareObfuscatedHashes(FromAddress, strObfuscatedHashes);
-
-  unsigned char packet[MAX_PACKETS * PACKET_SIZE];
-  memset(&packet, 0, sizeof(packet));
-
+  vector<unsigned char> data;
   swapByteOrder32(TransactionType);
   swapByteOrder32(CurrencyID);
   swapByteOrder64(Amount);
 
-  // TODO: beautify later
-  packet[0] = 0x01; // seq
-  memcpy(&packet[1], &TransactionType, 4);
-  memcpy(&packet[5], &CurrencyID, 4);
-  memcpy(&packet[9], &Amount, 8);
+  PUSH_BACK_BYTES(data, TransactionType);
+  PUSH_BACK_BYTES(data, CurrencyID);
+  PUSH_BACK_BYTES(data, Amount);
 
-  printf("pkt : %s\n", HexStr(packet, PACKET_SIZE + packet, false).c_str());
+  rc = ClassB_send(FromAddress, ToAddress, RedeemAddress, data, txid);
+  if (msc_debug_send) fprintf(mp_fp, "ClassB_send returned %d\n", rc);
 
-  vector<unsigned char>hash = ParseHex(strObfuscatedHashes[1]);
-  for (unsigned int i=0;i<hash.size();i++)
-  {
-    packet[i] ^= hash[i];
-  }
-
-  printf("     hash   :   %s\n", HexStr(hash).c_str());
-  printf("     packet :   %s\n", HexStr(packet, PACKET_SIZE + packet, false).c_str());
-
-  vector<unsigned char> vec_pkt;
-  vec_pkt.resize(2+PACKET_SIZE);
-  vec_pkt[0]=0x02;
-  memcpy(&vec_pkt[1], &packet, PACKET_SIZE);
-
-  CPubKey pubKey;
-  unsigned char random_byte = (unsigned char)(GetRand(256));
-  for (unsigned int i = 0; i < 0xFF ; i++)
-  {
-    vec_pkt[1+PACKET_SIZE] = random_byte;
-
-    pubKey = CPubKey(vec_pkt);
-    printf("pubKey check: %s\n", (HexStr(pubKey.begin(), pubKey.end()).c_str()));
-
-    if (pubKey.IsFullyValid()) break;
-
-    ++random_byte; // cycle 256 times, if we must to find a valid ECDSA point
-  }
-
-  rc = ClassB_send(FromAddress, ToAddress, HexStr(vec_pkt), coinControl, txid);
-  if (msc_debug_send) fprintf(mp_fp, "ClassB_send returned %d; n_total= %ld\n", rc, n_total);
+  if (error_code) *error_code = rc;
 
   return txid;
-}
-
-uint256 send_MP(const string &FromAddress, const string &ToAddress, unsigned int CurrencyID, uint64_t Amount)
-{
-  return send_INTERNAL_1packet(FromAddress, ToAddress, CurrencyID, Amount, MSC_TYPE_SIMPLE_SEND);
-}
-
-uint256 send_To_Owners(const string &FromAddress, unsigned int CurrencyID, uint64_t Amount)
-{
-  return send_INTERNAL_1packet(FromAddress, "", CurrencyID, Amount, MSC_TYPE_SEND_TO_OWNERS);
 }
 
 // send a MP transaction via RPC - simple send
 Value send_MP(const Array& params, bool fHelp)
 {
-if (fHelp || params.size() != 4)
+if (fHelp || params.size() < 4 || params.size() > 5)
         throw runtime_error(
             "send_MP\n"
             "\nCreates and broadcasts a simple send for a given amount and currency/property ID.\n"
-            "\nResult:\n"
+            "\nParameters:\n"
+            "FromAddress   : the address to send from\n"
+            "ToAddress     : the address to send to\n"
+            "PropertyID    : the id of the smart property to send\n"
+            "Amount        : the amount to send\n"
+            "RedeemAddress : (optional) the address that can redeem the bitcoin outputs. Defaults to FromAddress\n"
+            "Result:\n"
             "txid    (string) The transaction ID of the sent transaction\n"
             "\nExamples:\n"
-            ">mastercored send_MP 1FromAddress 1ToAddress CurrencyID Amount\n"
+            ">mastercored send_MP 1FromAddress 1ToAddress PropertyID Amount 1RedeemAddress\n"
         );
 
   std::string FromAddress = (params[0].get_str());
   std::string ToAddress = (params[1].get_str());
+  std::string RedeemAddress = (params.size() > 4) ? (params[4].get_str()): "";
 
   int64_t tmpPropertyId = params[2].get_int64();
   if ((1 > tmpPropertyId) || (4294967295 < tmpPropertyId)) // not safe to do conversion
@@ -5438,7 +5649,10 @@ if (fHelp || params.size() != 4)
            throw JSONRPCError(RPC_TYPE_ERROR, "Invalid amount");
 
   //some sanity checking of the data supplied?
-  uint256 newTX = send_MP(FromAddress, ToAddress, propertyId, Amount);
+  int code = 0;
+  uint256 newTX = send_INTERNAL_1packet(FromAddress, ToAddress, RedeemAddress, propertyId, Amount, MSC_TYPE_SIMPLE_SEND, &code);
+
+  if (0 != code) throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("error code= %i", code));
 
   //we need to do better than just returning a string of 0000000 here if we can't send the TX
   return newTX.GetHex();
@@ -5447,17 +5661,23 @@ if (fHelp || params.size() != 4)
 // send a MP transaction via RPC - simple send
 Value sendtoowners_MP(const Array& params, bool fHelp)
 {
-if (fHelp || params.size() != 3)
+if (fHelp || params.size() < 3 || params.size() > 4)
         throw runtime_error(
             "sendtoowners_MP\n"
             "\nCreates and broadcasts a send-to-owners transaction for a given amount and currency/property ID.\n"
+            "\nParameters:\n"
+            "FromAddress   : the address to send from\n"
+            "PropertyID    : the id of the smart property to send\n"
+            "Amount (string): the amount to send\n"
+            "RedeemAddress : (optional) the address that can redeem the bitcoin outputs. Defaults to FromAddress\n"
             "\nResult:\n"
             "txid    (string) The transaction ID of the sent transaction\n"
             "\nExamples:\n"
-            ">mastercored send_MP 1FromAddress PropertyID Amount\n"
+            ">mastercored send_MP 1FromAddress PropertyID Amount 1RedeemAddress\n"
         );
 
   std::string FromAddress = (params[0].get_str());
+  std::string RedeemAddress = (params.size() > 3) ? (params[3].get_str()): "";
 
   int64_t tmpPropertyId = params[1].get_int64();
   if ((1 > tmpPropertyId) || (4294967295 < tmpPropertyId)) // not safe to do conversion
@@ -5488,7 +5708,44 @@ if (fHelp || params.size() != 3)
 //  printf("%s() %40.25lf, %lu, line %d, file: %s\n", __FUNCTION__, tmpAmount, Amount, __LINE__, __FILE__);
 
   //some sanity checking of the data supplied?
-  uint256 newTX = send_To_Owners(FromAddress, propertyId, Amount);
+  int code = 0;
+  uint256 newTX = send_INTERNAL_1packet(FromAddress, "", RedeemAddress, propertyId, Amount, MSC_TYPE_SEND_TO_OWNERS, &code);
+
+  if (0 != code) throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("error code= %i", code));
+
+  //we need to do better than just returning a string of 0000000 here if we can't send the TX
+  return newTX.GetHex();
+}
+
+Value sendrawtx_MP(const Array& params, bool fHelp)
+{
+if (fHelp || params.size() < 3 || params.size() > 4)
+        throw runtime_error(
+            "sendrawtx_MP\n"
+            "\nCreates and broadcasts a simple send for a given amount and currency/property ID.\n"
+            "\nParameters:\n"
+            "FromAddress   : the address to send from\n"
+            "ToAddress     : the address to send to.  This should be empty: (\"\") for transaction\n"
+            "                types that do not use a reference/to address\n"
+            "RawTX         : the hex-encoded raw transaction\n"
+            "RedeemAddress : (optional) the address that can redeem the bitcoin outputs. Defaults to FromAddress\n"
+            "\nResult:\n"
+            "txid    (string) The transaction ID of the sent transaction\n"
+            "\nExamples:\n"
+            ">mastercored sendrawtx_MP 1FromAddress 1ToAddress <tx bytes hex> 1RedeemAddress\n"
+        );
+
+  std::string FromAddress = (params[0].get_str());
+  std::string ToAddress = (params[1].get_str());
+  std::string hexTransaction = (params[2].get_str());
+  std::string RedeemAddress = (params.size() > 4) ? (params[4].get_str()): "";
+
+  //some sanity checking of the data supplied?
+  uint256 newTX;
+  vector<unsigned char> data = ParseHex(hexTransaction);
+  int rc = ClassB_send(FromAddress, ToAddress, RedeemAddress, data, newTX);
+
+  if (0 != rc) throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("error code= %i", rc));
 
   //we need to do better than just returning a string of 0000000 here if we can't send the TX
   return newTX.GetHex();
@@ -5836,7 +6093,7 @@ Value gettransaction_MP(const Array& params, bool fHelp)
             "1. \"txid\"    (string, required) The transaction id\n"
             "\nResult:\n"
             "{\n"
-            "  \"amount\" : x.xxx,        (numeric) The transaction amount in btc\n"
+            "  \"amount\" : x.xxx,        (string) The transaction amount in btc\n"
             "  \"confirmations\" : n,     (numeric) The number of confirmations\n"
             "  \"blockhash\" : \"hash\",  (string) The block hash\n"
             "  \"blockindex\" : xx,       (numeric) The block index\n"
@@ -5849,7 +6106,7 @@ Value gettransaction_MP(const Array& params, bool fHelp)
             "      \"account\" : \"accountname\",  (string) The account name involved in the transaction, can be \"\" for the default account.\n"
             "      \"address\" : \"bitcoinaddress\",   (string) The bitcoin address involved in the transaction\n"
             "      \"category\" : \"send|receive\",    (string) The category, either 'send' or 'receive'\n"
-            "      \"amount\" : x.xxx                  (numeric) The amount in btc\n"
+            "      \"amount\" : x.xxx                  (string) The amount in btc\n"
             "    }\n"
             "    ,...\n"
             "  ],\n"
@@ -5893,13 +6150,14 @@ Value gettransaction_MP(const Array& params, bool fHelp)
                 unsigned char sell_timelimit = 0;
                 unsigned char sell_subaction = 0;
                 uint64_t sell_btcdesired = 0;
-
+                int rc=0;
                 bool crowdPurchase = false;
                 int64_t crowdPropertyId = 0;
                 int64_t crowdTokens = 0;
                 int64_t issuerTokens = 0;
                 bool crowdDivisible = false;
                 string crowdName;
+                string propertyName;
 
                 if ((0 == blockHash) || (NULL == mapBlockIndex[blockHash]))
                         throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Exception: blockHash is 0");
@@ -5929,6 +6187,14 @@ Value gettransaction_MP(const Array& params, bool fHelp)
                             txobj.push_back(Pair("confirmations", confirmations));
                             txobj.push_back(Pair("blocktime", blockTime));
                             txobj.push_back(Pair("type", "DEx Purchase"));
+                            // always min one subrecord, grab sender from first sub so we can display in parent as per Adam feedback
+                            string tmpBuyer;
+                            string tmpSeller;
+                            uint64_t tmpVout;
+                            uint64_t tmpNValue;
+                            uint64_t tmpPropertyId;
+                            p_txlistdb->getPurchaseDetails(wtxid,1,&tmpBuyer,&tmpSeller,&tmpVout,&tmpPropertyId,&tmpNValue);
+                            txobj.push_back(Pair("sendingaddress", tmpBuyer));
                             // get the details of sub records for payment(s) in the tx and push into an array
                             Array purchases;
                             int numberOfPurchases=p_txlistdb->getNumberOfPurchases(wtxid);
@@ -5952,7 +6218,6 @@ Value gettransaction_MP(const Array& params, bool fHelp)
                                      purchaseObj.push_back(Pair("vout", vout));
                                      purchaseObj.push_back(Pair("amountpaid", FormatDivisibleMP(amountPaid)));
                                      purchaseObj.push_back(Pair("ismine", bIsMine));
-                                     purchaseObj.push_back(Pair("senderaddress", buyer));
                                      purchaseObj.push_back(Pair("referenceaddress", seller));
                                      purchaseObj.push_back(Pair("propertyid", propertyId));
                                      purchaseObj.push_back(Pair("amountbought", FormatDivisibleMP(nValue)));
@@ -5980,17 +6245,30 @@ Value gettransaction_MP(const Array& params, bool fHelp)
                                 uint32_t tmptype=0;
                                 uint64_t amountNew=0;
                                 valid=getValidMPTX(wtxid, &tmpblock, &tmptype, &amountNew);
-
                                 //populate based on type of tx
                                 switch (MPTxTypeInt)
                                 {
                                      case MSC_TYPE_CREATE_PROPERTY_FIXED:
-                                          propertyId = _my_sps->findSPByTX(wtxid); // propertyId of created property (if valid)
-                                          amount = getTotalTokens(propertyId);
+                                          mp_obj.step2_SmartProperty(rc);
+                                          if (0 == rc)
+                                          {
+                                              propertyId = _my_sps->findSPByTX(wtxid); // propertyId of created property (if valid)
+                                              amount = getTotalTokens(propertyId);
+                                              propertyName = mp_obj.getSPName();
+                                          }
                                      break;
                                      case MSC_TYPE_CREATE_PROPERTY_VARIABLE:
+                                          mp_obj.step2_SmartProperty(rc);
+                                          if (0 == rc)
+                                          {
+                                              propertyId = _my_sps->findSPByTX(wtxid); // propertyId of created property (if valid)
+                                              amount = 0; // crowdsale txs always create zero tokens
+                                              propertyName = mp_obj.getSPName();
+                                          }
+                                     break;
+                                     case MSC_TYPE_CREATE_PROPERTY_MANUAL:
                                           propertyId = _my_sps->findSPByTX(wtxid); // propertyId of created property (if valid)
-                                          amount = 0; // crowdsale txs always create zero tokens
+                                          amount = 0; // issuance of a managed token does not create tokens
                                      break;
                                      case MSC_TYPE_SIMPLE_SEND:
                                           if (0 == mp_obj.step2_Value())
@@ -6037,7 +6315,10 @@ Value gettransaction_MP(const Array& params, bool fHelp)
                                           if ((valid) && (amountNew>0)) amount=amountNew; //amount has been amended, update
                                      break;
                                      case MSC_TYPE_CLOSE_CROWDSALE:
-                                          propertyId = 0; // propertyId of Crowdsale Close
+                                          if (0 == mp_obj.step2_Value())
+                                          {
+                                               propertyId = mp_obj.getCurrency();
+                                          }
                                      break;
                                      case  MSC_TYPE_SEND_TO_OWNERS:
                                           if (0 == mp_obj.step2_Value())
@@ -6078,6 +6359,7 @@ Value gettransaction_MP(const Array& params, bool fHelp)
                         txobj.push_back(Pair("blocktime", blockTime));
                         txobj.push_back(Pair("type", MPTxType));
                         txobj.push_back(Pair("propertyid", propertyId));
+                        if ((MSC_TYPE_CREATE_PROPERTY_VARIABLE == MPTxTypeInt) || (MSC_TYPE_CREATE_PROPERTY_FIXED == MPTxTypeInt)) txobj.push_back(Pair("propertyname", propertyName));
                         txobj.push_back(Pair("divisible", divisible));
                         if (divisible)
                         {
@@ -6106,9 +6388,10 @@ Value gettransaction_MP(const Array& params, bool fHelp)
                         {
                         txobj.push_back(Pair("feerequired", ValueFromAmount(sell_minfee)));
                         txobj.push_back(Pair("timelimit", sell_timelimit));
-                        if (1 == sell_subaction) txobj.push_back(Pair("subaction", "New"));
-			if (2 == sell_subaction) txobj.push_back(Pair("subaction", "Update"));
-			if (3 == sell_subaction) txobj.push_back(Pair("subaction", "Cancel"));
+                        //for now must mark all v0 sells as new until we find a way to store a subaction for v0 sells
+                        if ((1 == sell_subaction) || ((0 == sell_subaction) && (0 < amount))) txobj.push_back(Pair("subaction", "New"));
+                        if (2 == sell_subaction) txobj.push_back(Pair("subaction", "Update"));
+                        if ((3 == sell_subaction) || ((0 == sell_subaction) && (0 == amount))) txobj.push_back(Pair("subaction", "Cancel"));
                         txobj.push_back(Pair("bitcoindesired", ValueFromAmount(sell_btcdesired)));
                         }
                         txobj.push_back(Pair("valid", valid));
@@ -6227,6 +6510,10 @@ string sAddress = "";
                                      case MSC_TYPE_CREATE_PROPERTY_VARIABLE:
                                           propertyId = _my_sps->findSPByTX(wtxid); // propertyId of created property (if valid)
                                           amount = 0; // crowdsale txs always create zero tokens
+                                     break;
+                                     case MSC_TYPE_CREATE_PROPERTY_MANUAL:
+                                          propertyId = _my_sps->findSPByTX(wtxid); // propertyId of created property (if valid)
+                                          amount = 0; // issuance of a managed token does not create tokens
                                      break;
                                      case MSC_TYPE_SIMPLE_SEND:
                                           if (0 == mp_obj.step2_Value())
@@ -6469,6 +6756,10 @@ bool addressFilter;
                                           propertyId = _my_sps->findSPByTX(wtxid); // propertyId of created property (if valid)
                                           amount = 0; // crowdsale txs always create zero tokens
                                      break;
+                                     case MSC_TYPE_CREATE_PROPERTY_MANUAL:
+                                          propertyId = _my_sps->findSPByTX(wtxid); // propertyId of created property (if valid)
+                                          amount = 0; // issuance of a managed token does not create tokens
+                                     break;
                                      case MSC_TYPE_SIMPLE_SEND:
                                           if (0 == mp_obj.step2_Value())
                                           {
@@ -6620,8 +6911,8 @@ Value getallbalancesforid_MP(const Array& params, bool fHelp)
             "\nResult:\n"
             "{\n"
             "  \"address\" : 1Address,        (string) The address\n"
-            "  \"balance\" : x.xxx,     (numeric) The available balance of the address\n"
-            "  \"reserved\" : x.xxx,   (numeric) The amount reserved by sell offers and accepts\n"
+            "  \"balance\" : x.xxx,     (string) The available balance of the address\n"
+            "  \"reserved\" : x.xxx,   (string) The amount reserved by sell offers and accepts\n"
             "}\n"
 
             "\nbExamples\n"
@@ -6693,9 +6984,8 @@ Value getallbalancesforaddress_MP(const Array& params, bool fHelp)
             "\nResult:\n"
             "{\n"
             "  \"propertyid\" : x,        (numeric) the property id\n"
-            "  \"balance\" : x.xxx,     (numeric) The available balance of the address\n"
-            "  \"reservedbyselloffer\" : x.xxx,   (numeric) The amount reserved by sell offers\n"
-            "  \"reservedbyacceptoffer\" : x.xxx,   (numeric) The amount reserved by accepts\n"
+            "  \"balance\" : x.xxx,     (string) The available balance of the address\n"
+            "  \"reserved\" : x.xxx,   (string) The amount reserved by sell offers and accepts\n"
             "}\n"
 
             "\nbExamples\n"
@@ -6769,7 +7059,7 @@ Value getproperty_MP(const Array& params, bool fHelp)
             "  \"divisible\" : false,     (boolean) whether the property is divisible\n"
             "  \"issuer\" : \"1Address\",     (string) the property issuer address\n"
             "  \"issueancetype\" : \"Fixed\",     (string) the property method of issuance\n"
-            "  \"totaltokens\" : x     (numeric) the total number of tokens in existence\n"
+            "  \"totaltokens\" : x     (string) the total number of tokens in existence\n"
             "}\n"
 
             "\nbExamples\n"
@@ -6800,6 +7090,8 @@ Value getproperty_MP(const Array& params, bool fHelp)
         string issuer = sp.issuer;
         bool fixedIssuance = sp.fixed;
 
+        uint64_t dispPropertyId = propertyId; //json spirit needs a uint64 as noted elsewhere
+        response.push_back(Pair("propertyid", dispPropertyId)); //req by DexX to include propId in this output, no harm :)
         response.push_back(Pair("name", propertyName));
         response.push_back(Pair("category", propertyCategory));
         response.push_back(Pair("subcategory", propertySubCategory));
@@ -6922,7 +7214,9 @@ Value getcrowdsale_MP(const Array& params, bool fHelp)
             "  \"starttime\" : xxx,     (numeric) the start time of the crowdsale\n"
             "  \"deadline\" : xxx,     (numeric) the time the crowdsale will automatically end\n"
             "  \"closedearly\" : false,     (boolean) whether the crowdsale was ended early\n"
+            "  \"maxtokens\" : false,     (boolean) whether the crowdsale was ended early due to maxing the token count\n"
             "  \"endedtime\" : xxx,     (numeric) the time the crowdsale ended\n"
+            "  \"closetx\" : \"txid\",     (string) the transaction that closed the crowdsale\n"
             "}\n"
 
             "\nbExamples\n"
@@ -6969,6 +7263,10 @@ Value getcrowdsale_MP(const Array& params, bool fHelp)
     int64_t deadline = sp.deadline;
     int8_t earlyBonus = sp.early_bird;
     int8_t percentToIssuer = sp.percentage;
+    bool closeEarly = sp.close_early;
+    bool maxTokens = sp.max_tokens;
+    int64_t timeClosed = sp.timeclosed;
+    string txidClosed = sp.txid_close.GetHex();
     string issuer = sp.issuer;
     int64_t amountRaised = 0;
     int64_t tokensIssued = getTotalTokens(propertyId);
@@ -7082,9 +7380,11 @@ Value getcrowdsale_MP(const Array& params, bool fHelp)
     {
         response.push_back(Pair("tokensissued", FormatIndivisibleMP(tokensIssued)));
     }
-    if (!active) response.push_back(Pair("closedearly", "unknown"));
-    if (!active) response.push_back(Pair("endedtime", "unknown"));
-
+    if (!active) response.push_back(Pair("closedearly", closeEarly));
+    if (!active) response.push_back(Pair("maxtokens", maxTokens));
+    if (closeEarly) response.push_back(Pair("endedtime", timeClosed));
+    if (closeEarly && !maxTokens) response.push_back(Pair("closetx", txidClosed));
+    
     // array of txids contributing to crowdsale here if needed
     if (showVerbose)
     {
@@ -7187,15 +7487,15 @@ Value getgrants_MP(const Array& params, bool fHelp)
             "  \"name\" : \"PropertyName\",   (string) the property name\n"
             "  \"issuer\" : \"1Address\",     (string) the issuer address\n"
             "  \"creationtxid\" : \"txid\",   (string) the transaction that created the crowdsale\n"
-            "  \"totaltokens\" : \"1234\",    (numeric) the number of tokens in circulation\n"
+            "  \"totaltokens\" : \"1234\",    (string) the number of tokens in circulation\n"
             "  \"issuances\" : [\n"
             "                    {\n"
             "                      \"txid\" : \"txid\",   (string) the transaction that granted/revoked tokens\n"
-            "                      \"grant\" : \"1234\",  (numeric) the number of tokens granted\n"
+            "                      \"grant\" : \"1234\",  (string) the number of tokens granted\n"
             "                    },\n"
             "                    {\n"
             "                      \"txid\" : \"txid\",   (string) the transaction that granted/revoked tokens\n"
-            "                      \"revoke\" : \"1234\", (numeric) the number of tokens revoked\n"
+            "                      \"revoke\" : \"1234\", (string) the number of tokens revoked\n"
             "                    },\n"
             "                    ...\n"
             "                  ]\n"
@@ -7225,10 +7525,8 @@ Value getgrants_MP(const Array& params, bool fHelp)
 
     Object response;
 
-    bool active = false;
-    active = isCrowdsaleActive(propertyId);
-    bool divisible = false;
-    divisible=sp.isDivisible();
+//    bool active = isCrowdsaleActive(propertyId);  // UNUSED WARNING
+//    bool divisible = sp.isDivisible(); // UNUSED WARNING
     string propertyName = sp.name;
     string issuer = sp.issuer;
     int64_t totalTokens = getTotalTokens(propertyId);
@@ -7279,18 +7577,23 @@ Value getgrants_MP(const Array& params, bool fHelp)
 
 Value listblocktransactions_MP(const Array& params, bool fHelp)
 {
-   if (fHelp)
+   if (fHelp || params.size() != 1)
         throw runtime_error(
-            "listblocktransactions_MP\n"
-            "\nList MP TXIDs in a block\n"
+            "listblocktransactions_MP index\n"
+            "\nReturns all Master Protocol transactions in a block.\n"
+            
+            "\nArguments:\n"
+            "1. index         (numeric, required) The block height or index\n"
+            
             "\nResult:\n"
-            "{\n"
-            "  \"txid\" : \"txid\",     (string) MP txid\n"
-            "}\n"
+            "[                (array of string)\n"
+            "  \"hash\"         (string) Transaction id\n"            
+            "  ,...\n"
+            "]\n"
 
-            "\nbExamples\n"
-            + HelpExampleCli("listblocktransactions_MP", "")
-            + HelpExampleRpc("listblocktransactions_MP", "")
+            "\nExamples\n"
+            + HelpExampleCli("listblocktransactions_MP", "279007")
+            + HelpExampleRpc("listblocktransactions_MP", "279007")
         );
 
   // firstly let's get the block height given in the param
@@ -7321,7 +7624,7 @@ Value listblocktransactions_MP(const Array& params, bool fHelp)
             response.push_back(tx.GetHash().GetHex());
        }
   }
-return response;
+  return response;
 }
 
 Value getactivedexsells_MP(const Array& params, bool fHelp)

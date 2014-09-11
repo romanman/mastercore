@@ -9,6 +9,9 @@
 #include "netbase.h"
 #include "protocol.h"
 
+#define INFO_FILENAME   "mastercore_crowdsales.log"
+#define OWNERS_FILENAME "mastercore_owners.log"
+
 int const MAX_STATE_HISTORY = 50;
 
 #define TEST_ECO_PROPERTY_1 (0x80000003UL)
@@ -28,9 +31,6 @@ int const MAX_STATE_HISTORY = 50;
 // some boost formats
 #define FORMAT_BOOST_TXINDEXKEY "index-tx-%s"
 #define FORMAT_BOOST_SPKEY      "sp-%d"
-
-// the min amount to send to marker, reference, data outputs, used in send_MP() & related functions
-#define MP_DUST_LIMIT 5678
 
 // Master Protocol Transaction (Packet) Version
 #define MP_TX_PKT_V0  0
@@ -90,6 +90,7 @@ enum BLOCKHEIGHTRESTRICTIONS {
   MSC_METADEX_BLOCK = 999999,
   MSC_BET_BLOCK     = 999999,
   MSC_MANUALSP_BLOCK = 999999,
+  P2SH_BLOCK        = 999999,
 };
 
 enum FILETYPES {
@@ -116,6 +117,9 @@ enum FILETYPES {
 #define PKT_ERROR_TRADEOFFER  (-70000)
 #define PKT_ERROR_METADEX     (-80000)
 #define METADEX_ERROR         (-81000)
+#define PKT_ERROR_TOKENS      (-82000)
+
+#define CLASSB_SEND_ERROR     (-200)
 
 #define MASTERCOIN_CURRENCY_BTC   0
 #define MASTERCOIN_CURRENCY_MSC   1
@@ -123,16 +127,6 @@ enum FILETYPES {
 
 // forward declarations
 string FormatDivisibleMP(int64_t n, bool fSign = false);
-
-inline uint64_t rounduint64(double d)
-{
-  return (uint64_t)(abs(0.5 + d));
-}
-
-inline bool isNonMainNet()
-{
-  return (TestNet() || RegTest());
-}
 
 extern CCriticalSection cs_tally;
 extern char *c_strMastercoinCurrency(int i);
