@@ -18,7 +18,7 @@
 #include "init.h"
 #include "util.h"
 #include "wallet.h"
-#include "walletdb.h"
+// #include "walletdb.h"
 #include "coincontrol.h"
 
 #include <stdint.h>
@@ -71,6 +71,8 @@ static const string getmoney_testnet = "moneyqMan7uh8FqdCA2BV5yZ8qVrc9ikLP";
 #include "mastercore.h"
 
 using namespace mastercore;
+
+#include "mastercore_tx.h"
 
 // part of 'breakout' feature
 static const int nBlockTop = 0;
@@ -367,165 +369,13 @@ std::string mastercore::FormatIndivisibleMP(int64_t n)
   return str;
 }
 
-// a single outstanding offer -- from one seller of one currency, internally may have many accepts
-class CMPOffer
-{
-private:
-  int offerBlock;
-  uint64_t offer_amount_original; // the amount of MSC for sale specified when the offer was placed
-  unsigned int currency;
-  uint64_t BTC_desired_original; // amount desired, in BTC
-  uint64_t min_fee;
-  unsigned char blocktimelimit;
-  uint256 txid;
-  unsigned char subaction;
-
-public:
-  uint256 getHash() const { return txid; }
-  unsigned int getCurrency() const { return currency; }
-  uint64_t getMinFee() const { return min_fee ; }
-  unsigned char getBlockTimeLimit() { return blocktimelimit; }
-  unsigned char getSubaction() { return subaction; }
-
-  uint64_t getOfferAmountOriginal() { return offer_amount_original; }
-  uint64_t getBTCDesiredOriginal() { return BTC_desired_original; }
-
-  CMPOffer():offerBlock(0),offer_amount_original(0),currency(0),BTC_desired_original(0),min_fee(0),blocktimelimit(0),txid(0)
-  {
-  }
-
-  CMPOffer(int b, uint64_t a, unsigned int cu, uint64_t d, uint64_t fee, unsigned char btl, const uint256 &tx)
-   :offerBlock(b),offer_amount_original(a),currency(cu),BTC_desired_original(d),min_fee(fee),blocktimelimit(btl),txid(tx)
-  {
-    if (msc_debug_dex) fprintf(mp_fp, "%s(%lu): %s , line %d, file: %s\n", __FUNCTION__, a, txid.GetHex().c_str(), __LINE__, __FILE__);
-  }
-
-  void Set(uint64_t d, uint64_t fee, unsigned char btl, unsigned char suba)
-  {
-    BTC_desired_original = d;
-    min_fee = fee;
-    blocktimelimit = btl;
-    subaction = suba;
-  }
-
-  void saveOffer(ofstream &file, SHA256_CTX *shaCtx, string const &addr ) const {
-    // compose the outputline
-    // seller-address, ...
-    string lineOut = (boost::format("%s,%d,%d,%d,%d,%d,%d,%s")
-      % addr
-      % offerBlock
-      % offer_amount_original
-      % currency
-      % BTC_desired_original
-      % min_fee
-      % (int)blocktimelimit
-      % txid.ToString()).str();
-
-    // add the line to the hash
-    SHA256_Update(shaCtx, lineOut.c_str(), lineOut.length());
-
-    // write the line
-    file << lineOut << endl;
-  }
-};  // end of CMPOffer class
-
-// do a map of buyers, primary key is buyer+currency
-// MUST account for many possible accepts and EACH currency offer
-class CMPAccept
-{
-private:
-  uint64_t accept_amount_original;    // amount of MSC/TMSC desired to purchased
-  uint64_t accept_amount_remaining;   // amount of MSC/TMSC remaining to purchased
-// once accept is seen on the network the amount of MSC being purchased is taken out of seller's SellOffer-Reserve and put into this Buyer's Accept-Reserve
-  unsigned char blocktimelimit;       // copied from the offer during creation
-  unsigned int currency;              // copied from the offer during creation
-
-  uint64_t offer_amount_original; // copied from the Offer during Accept's creation
-  uint64_t BTC_desired_original;  // copied from the Offer during Accept's creation
-
-  uint256 offer_txid; // the original offers TXIDs, needed to match Accept to the Offer during Accept's destruction, etc.
-
-public:
-  uint256 getHash() const { return offer_txid; }
-
-  uint64_t getOfferAmountOriginal() { return offer_amount_original; }
-  uint64_t getBTCDesiredOriginal() { return BTC_desired_original; }
-
-  int block;          // 'accept' message sent in this block
-
-  unsigned char getBlockTimeLimit() { return blocktimelimit; }
-  unsigned int getCurrency() const { return currency; }
-
-  int getAcceptBlock()  { return block; }
-
-  CMPAccept(uint64_t a, int b, unsigned char blt, unsigned int c, uint64_t o, uint64_t btc, const uint256 &txid):accept_amount_remaining(a),blocktimelimit(blt),currency(c),
-   offer_amount_original(o), BTC_desired_original(btc),offer_txid(txid),block(b)
-  {
-    accept_amount_original = accept_amount_remaining;
-    fprintf(mp_fp, "%s(%lu), line %d, file: %s\n", __FUNCTION__, a, __LINE__, __FILE__);
-  }
-
-  CMPAccept(uint64_t origA, uint64_t remA, int b, unsigned char blt, unsigned int c, uint64_t o, uint64_t btc, const uint256 &txid):accept_amount_original(origA),accept_amount_remaining(remA),blocktimelimit(blt),currency(c),
-   offer_amount_original(o), BTC_desired_original(btc),offer_txid(txid),block(b)
-  {
-    fprintf(mp_fp, "%s(%lu[%lu]), line %d, file: %s\n", __FUNCTION__, remA, origA, __LINE__, __FILE__);
-  }
-
-  void print()
-  {
-    fprintf(mp_fp, "buying: %12.8lf (originally= %12.8lf) in block# %d\n",
-     (double)accept_amount_remaining/(double)COIN, (double)accept_amount_original/(double)COIN, block);
-  }
-
-  uint64_t getAcceptAmountRemaining() const
-  { 
-    fprintf(mp_fp, "%s(); buyer still wants = %lu, line %d, file: %s\n", __FUNCTION__, accept_amount_remaining, __LINE__, __FILE__);
-
-    return accept_amount_remaining;
-  }
-
-  // reduce accept_amount_remaining and return "true" if the customer is fully satisfied (nothing desired to be purchased)
-  bool reduceAcceptAmountRemaining_andIsZero(const uint64_t really_purchased)
-  {
-  bool bRet = false;
-
-    if (really_purchased >= accept_amount_remaining) bRet = true;
-
-    accept_amount_remaining -= really_purchased;
-
-    return bRet;
-  }
-
-  void saveAccept(ofstream &file, SHA256_CTX *shaCtx, string const &addr, string const &buyer ) const {
-    // compose the outputline
-    // seller-address, currency, buyer-address, amount, fee, block
-    string lineOut = (boost::format("%s,%d,%s,%d,%d,%d,%d,%d,%d,%s")
-      % addr
-      % currency
-      % buyer
-      % block
-      % accept_amount_remaining
-      % accept_amount_original
-      % (int)blocktimelimit
-      % offer_amount_original
-      % BTC_desired_original
-      % offer_txid.ToString()).str();
-
-    // add the line to the hash
-    SHA256_Update(shaCtx, lineOut.c_str(), lineOut.length());
-
-    // write the line
-    file << lineOut << endl;
-  }
-
-};  // end of CMPAccept class
-
 string const CMPSPInfo::watermarkKey("watermark");
 
 CCriticalSection cs_tally;
 
-static map<string, CMPOffer> my_offers;
-static map<string, CMPAccept> my_accepts;
+OfferMap mastercore::my_offers;
+AcceptMap mastercore::my_accepts;
+
 CMPSPInfo *mastercore::_my_sps;
 CrowdMap mastercore::my_crowds;
 MetaDExMap mastercore::metadex;
@@ -874,7 +724,7 @@ bool DEx_offerExists(const string &seller_addr, unsigned int curr)
 {
   if (msc_debug_dex) fprintf(mp_fp, "%s(), line %d, file: %s\n", __FUNCTION__, __LINE__, __FILE__);
 const string combo = STR_SELLOFFER_ADDR_CURR_COMBO(seller_addr);
-map<string, CMPOffer>::iterator my_it = my_offers.find(combo);
+OfferMap::iterator my_it = my_offers.find(combo);
 
   return !(my_it == my_offers.end());
 }
@@ -885,7 +735,7 @@ CMPOffer *DEx_getOffer(const string &seller_addr, unsigned int curr)
 {
   if (msc_debug_dex) fprintf(mp_fp, "%s(%s, %u)\n", __FUNCTION__, seller_addr.c_str(), curr);
 const string combo = STR_SELLOFFER_ADDR_CURR_COMBO(seller_addr);
-map<string, CMPOffer>::iterator my_it = my_offers.find(combo);
+OfferMap::iterator my_it = my_offers.find(combo);
 
   if (my_it != my_offers.end()) return &(my_it->second);
 
@@ -897,7 +747,7 @@ CMPAccept *DEx_getAccept(const string &seller_addr, unsigned int curr, const str
 {
   if (msc_debug_dex) fprintf(mp_fp, "%s(%s, %u, %s)\n", __FUNCTION__, seller_addr.c_str(), curr, buyer_addr.c_str());
 const string combo = STR_ACCEPT_ADDR_CURR_ADDR_COMBO(seller_addr, buyer_addr);
-map<string, CMPAccept>::iterator my_it = my_accepts.find(combo);
+AcceptMap::iterator my_it = my_accepts.find(combo);
 
   if (my_it != my_accepts.end()) return &(my_it->second);
 
@@ -959,7 +809,7 @@ const uint64_t amount = getMPbalance(seller_addr, curr, SELLOFFER_RESERVE);
 
   const string combo = STR_SELLOFFER_ADDR_CURR_COMBO(seller_addr);
 
-  map<string, CMPOffer>::iterator my_it;
+  OfferMap::iterator my_it;
 
   my_it = my_offers.find(combo);
 
@@ -1005,7 +855,7 @@ int rc = DEX_ERROR_ACCEPT - 10;
 
   if (msc_debug_dex) fprintf(mp_fp, "%s(), line %d, file: %s\n", __FUNCTION__, __LINE__, __FILE__);
 
-map<string, CMPOffer>::iterator my_it;
+OfferMap::iterator my_it;
 const string selloffer_combo = STR_SELLOFFER_ADDR_CURR_COMBO(seller);
 const string accept_combo = STR_ACCEPT_ADDR_CURR_ADDR_COMBO(seller, buyer);
 uint64_t nActualAmount = getMPbalance(seller, curr, SELLOFFER_RESERVE);
@@ -1117,7 +967,7 @@ const string accept_combo = STR_ACCEPT_ADDR_CURR_ADDR_COMBO(seller, buyer);
   // can only erase when is NOT called from an iterator loop
   if (bForceErase)
   {
-  const map<string, CMPAccept>::iterator my_it = my_accepts.find(accept_combo);
+  const AcceptMap::iterator my_it = my_accepts.find(accept_combo);
 
     if (my_accepts.end() !=my_it) my_accepts.erase(my_it);
   }
@@ -1202,7 +1052,7 @@ p_accept = DEx_getAccept(seller, curr, buyer);
 unsigned int eraseExpiredAccepts(int blockNow)
 {
 unsigned int how_many_erased = 0;
-map<string, CMPAccept>::iterator my_it = my_accepts.begin();
+AcceptMap::iterator my_it = my_accepts.begin();
 
   while (my_accepts.end() != my_it)
   {
@@ -2193,30 +2043,6 @@ public:
 
     return rc;
   }
-
-/*
-[12:16:00 PM] ... some open spec issues
-[12:16:05 PM] zathrasc: just picked these out real quick
-[12:16:10 PM] zathrasc: should be mostly related to metadex
-https://github.com/mastercoin-MSC/spec/issues/187
-
-https://github.com/mastercoin-MSC/spec/issues/184
-
-https://github.com/mastercoin-MSC/spec/issues/179
-
-https://github.com/mastercoin-MSC/spec/issues/175
-
-https://github.com/mastercoin-MSC/spec/issues/173
-
-https://github.com/mastercoin-MSC/spec/issues/155
-
-https://github.com/mastercoin-MSC/spec/issues/142
-
-big one
-
-https://github.com/mastercoin-MSC/spec/issues/170
-[12:16:26 PM] zathrasc: but yeah for thorough would be a fishing expedition mate
-*/
 
   int logicMath_MetaDEx()
   {
@@ -4174,7 +4000,7 @@ static int write_msc_balances(ofstream &file, SHA256_CTX *shaCtx)
 
 static int write_mp_offers(ofstream &file, SHA256_CTX *shaCtx)
 {
-  map<string, CMPOffer>::const_iterator iter;
+  OfferMap::const_iterator iter;
   for (iter = my_offers.begin(); iter != my_offers.end(); ++iter) {
     // decompose the key for address
     std::vector<std::string> vstr;
@@ -4189,7 +4015,7 @@ static int write_mp_offers(ofstream &file, SHA256_CTX *shaCtx)
 
 static int write_mp_accepts(ofstream &file, SHA256_CTX *shaCtx)
 {
-  map<string, CMPAccept>::const_iterator iter;
+  AcceptMap::const_iterator iter;
   for (iter = my_accepts.begin(); iter != my_accepts.end(); ++iter) {
     // decompose the key for address
     std::vector<std::string> vstr;
@@ -4915,7 +4741,7 @@ uint256 txid = 0;
 
 int CMPTxList::getNumberOfPurchases(const uint256 txid)
 {
-    if (!pdb) return false;
+    if (!pdb) return 0;
     int numberOfPurchases = 0;
     std::vector<std::string> vstr;
     string strValue;
@@ -6016,153 +5842,6 @@ bool addressFilter;
     return response;   // return response array for JSON serialization
 }
 
-Value listblocktransactions_MP(const Array& params, bool fHelp)
-{
-   if (fHelp || params.size() != 1)
-        throw runtime_error(
-            "listblocktransactions_MP index\n"
-            "\nReturns all Master Protocol transactions in a block.\n"
-            
-            "\nArguments:\n"
-            "1. index         (numeric, required) The block height or index\n"
-            
-            "\nResult:\n"
-            "[                (array of string)\n"
-            "  \"hash\"         (string) Transaction id\n"            
-            "  ,...\n"
-            "]\n"
-
-            "\nExamples\n"
-            + HelpExampleCli("listblocktransactions_MP", "279007")
-            + HelpExampleRpc("listblocktransactions_MP", "279007")
-        );
-
-  // firstly let's get the block height given in the param
-  int blockHeight = params[0].get_int();
-  if (blockHeight < 0 || blockHeight > GetHeight())
-        throw runtime_error("Cannot display MP transactions for a non-existent block.");
-
-  // next let's obtain the block for this height
-  CBlockIndex* mpBlockIndex = chainActive[blockHeight];
-  CBlock mpBlock;
-
-  // now let's read this block in from disk so we can loop its transactions
-  if(!ReadBlockFromDisk(mpBlock, mpBlockIndex))
-        throw JSONRPCError(RPC_INTERNAL_ERROR, "Internal Error: Failed to read block from disk");
-
-  // create an array to hold our response
-  Array response;
-
-  // now we want to loop through each of the transactions in the block and run against CMPTxList::exists
-  // those that return positive add to our response array
-  BOOST_FOREACH(const CTransaction&tx, mpBlock.vtx)
-  {
-       bool mptx = p_txlistdb->exists(tx.GetHash());
-       if (mptx)
-       {
-            // later we can add a verbose flag to decode here, but for now callers can send returned txids into gettransaction_MP
-            // add the txid into the response as it's an MP transaction
-            response.push_back(tx.GetHash().GetHex());
-       }
-  }
-  return response;
-}
-
-Value getactivedexsells_MP(const Array& params, bool fHelp)
-{
-   if (fHelp)
-        throw runtime_error(
-            "getactivedexsells_MP\n"
-            "\nGet currently active distributed exchange sell offers\n"
-            "\nResult:\n"
-            "{\n"
-            "}\n"
-
-            "\nbExamples\n"
-            + HelpExampleCli("getactivedexsells_MP", "")
-            + HelpExampleRpc("getactivedexsells_MP", "")
-        );
-
-      //if 0 params list all sells, otherwise first param is filter address
-      bool addressFilter = false;
-      string addressParam;
-
-      if (params.size() > 0)
-      {
-          addressParam = params[0].get_str();
-          addressFilter = true;
-      }
-
-      Array response;
-
-      for(map<string, CMPOffer>::iterator it = my_offers.begin(); it != my_offers.end(); ++it)
-      {
-          CMPOffer selloffer = it->second;
-          string sellCombo = it->first;
-          string seller = sellCombo.substr(0, sellCombo.size()-2);
-
-          //filtering
-          if ((addressFilter) && (seller != addressParam)) continue;
-
-          uint256 sellHash = selloffer.getHash();
-          string txid = sellHash.GetHex();
-          uint64_t propertyId = selloffer.getCurrency();
-          uint64_t minFee = selloffer.getMinFee();
-          unsigned char timeLimit = selloffer.getBlockTimeLimit();
-          uint64_t sellOfferAmount = selloffer.getOfferAmountOriginal(); //badly named - "Original" implies off the wire, but is amended amount
-          uint64_t sellBitcoinDesired = selloffer.getBTCDesiredOriginal(); //badly named - "Original" implies off the wire, but is amended amount
-          uint64_t amountAvailable = getMPbalance(seller, propertyId, SELLOFFER_RESERVE);
-          uint64_t amountAccepted = getMPbalance(seller, propertyId, ACCEPT_RESERVE);
-
-          //unit price & updated bitcoin desired calcs
-          double unitPriceFloat = 0;
-          if ((sellOfferAmount>0) && (sellBitcoinDesired > 0)) unitPriceFloat = (double)sellBitcoinDesired/(double)sellOfferAmount; //divide by zero protection
-          uint64_t unitPrice = rounduint64(unitPriceFloat * COIN);
-          uint64_t bitcoinDesired = rounduint64(amountAvailable*unitPriceFloat);
-
-          Object responseObj;
-
-          responseObj.push_back(Pair("txid", txid));
-          responseObj.push_back(Pair("propertyid", propertyId));
-          responseObj.push_back(Pair("seller", seller));
-          responseObj.push_back(Pair("amountavailable", FormatDivisibleMP(amountAvailable)));
-          responseObj.push_back(Pair("bitcoindesired", FormatDivisibleMP(bitcoinDesired)));
-          responseObj.push_back(Pair("unitprice", FormatDivisibleMP(unitPrice)));
-          responseObj.push_back(Pair("timelimit", timeLimit));
-          responseObj.push_back(Pair("minimumfee", FormatDivisibleMP(minFee)));
-
-          // display info about accepts related to sell
-          responseObj.push_back(Pair("amountaccepted", FormatDivisibleMP(amountAccepted)));
-          Array acceptsMatched;
-          for(map<string, CMPAccept>::iterator ait = my_accepts.begin(); ait != my_accepts.end(); ++ait)
-          {
-              Object matchedAccept;
-
-              CMPAccept accept = ait->second;
-              string acceptCombo = ait->first;
-              uint256 matchedHash = accept.getHash();
-              // does this accept match the sell?
-              if (matchedHash == sellHash)
-              {
-                  //split acceptCombo out to get the buyer address
-                  string buyer = acceptCombo.substr((acceptCombo.find("+")+1),(acceptCombo.size()-(acceptCombo.find("+")+1)));
-                  uint64_t acceptBlock = accept.getAcceptBlock();
-                  uint64_t acceptAmount = accept.getAcceptAmountRemaining();
-                  matchedAccept.push_back(Pair("buyer", buyer));
-                  matchedAccept.push_back(Pair("block", acceptBlock));
-                  matchedAccept.push_back(Pair("amount", FormatDivisibleMP(acceptAmount)));
-                  acceptsMatched.push_back(matchedAccept);
-              }
-          }
-          responseObj.push_back(Pair("accepts", acceptsMatched));
-
-          // add sell object into response array
-          response.push_back(responseObj);
-      }
-
-return response;
-}
-
 std::string CScript::mscore_parse(std::vector<std::string>&msc_parsed, bool bNoBypass) const
 {
     int count = 0;
@@ -6269,8 +5948,7 @@ int mastercore_handler_block_end(int nBlockNow, CBlockIndex const * pBlockIndex,
   (void) set_wallet_totals();
 //  printf("the globals: MSC_total= %lu, MSC_RESERVED_total= %lu\n", global_MSC_total, global_MSC_RESERVED_total);
 
-  if (mp_fp)
-    fflush(mp_fp);
+  if (mp_fp) fflush(mp_fp);
 
   // save out the state after this block
   if (writePersistence(nBlockNow))

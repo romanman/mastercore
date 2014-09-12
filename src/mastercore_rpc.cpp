@@ -3,7 +3,6 @@
 #include "rpcserver.h"
 #include "util.h"
 #include "wallet.h"
-#include "walletdb.h"
 
 #include <stdint.h>
 #include <string.h>
@@ -1002,5 +1001,152 @@ Value getgrants_MP(const Array& params, bool fHelp)
     }
     response.push_back(Pair("issuances", issuancetxs));
     return response;
+}
+
+Value getactivedexsells_MP(const Array& params, bool fHelp)
+{
+   if (fHelp)
+        throw runtime_error(
+            "getactivedexsells_MP\n"
+            "\nGet currently active distributed exchange sell offers\n"
+            "\nResult:\n"
+            "{\n"
+            "}\n"
+
+            "\nbExamples\n"
+            + HelpExampleCli("getactivedexsells_MP", "")
+            + HelpExampleRpc("getactivedexsells_MP", "")
+        );
+
+      //if 0 params list all sells, otherwise first param is filter address
+      bool addressFilter = false;
+      string addressParam;
+
+      if (params.size() > 0)
+      {
+          addressParam = params[0].get_str();
+          addressFilter = true;
+      }
+
+      Array response;
+
+      for(OfferMap::iterator it = my_offers.begin(); it != my_offers.end(); ++it)
+      {
+          CMPOffer selloffer = it->second;
+          string sellCombo = it->first;
+          string seller = sellCombo.substr(0, sellCombo.size()-2);
+
+          //filtering
+          if ((addressFilter) && (seller != addressParam)) continue;
+
+          uint256 sellHash = selloffer.getHash();
+          string txid = sellHash.GetHex();
+          uint64_t propertyId = selloffer.getCurrency();
+          uint64_t minFee = selloffer.getMinFee();
+          unsigned char timeLimit = selloffer.getBlockTimeLimit();
+          uint64_t sellOfferAmount = selloffer.getOfferAmountOriginal(); //badly named - "Original" implies off the wire, but is amended amount
+          uint64_t sellBitcoinDesired = selloffer.getBTCDesiredOriginal(); //badly named - "Original" implies off the wire, but is amended amount
+          uint64_t amountAvailable = getMPbalance(seller, propertyId, SELLOFFER_RESERVE);
+          uint64_t amountAccepted = getMPbalance(seller, propertyId, ACCEPT_RESERVE);
+
+          //unit price & updated bitcoin desired calcs
+          double unitPriceFloat = 0;
+          if ((sellOfferAmount>0) && (sellBitcoinDesired > 0)) unitPriceFloat = (double)sellBitcoinDesired/(double)sellOfferAmount; //divide by zero protection
+          uint64_t unitPrice = rounduint64(unitPriceFloat * COIN);
+          uint64_t bitcoinDesired = rounduint64(amountAvailable*unitPriceFloat);
+
+          Object responseObj;
+
+          responseObj.push_back(Pair("txid", txid));
+          responseObj.push_back(Pair("propertyid", propertyId));
+          responseObj.push_back(Pair("seller", seller));
+          responseObj.push_back(Pair("amountavailable", FormatDivisibleMP(amountAvailable)));
+          responseObj.push_back(Pair("bitcoindesired", FormatDivisibleMP(bitcoinDesired)));
+          responseObj.push_back(Pair("unitprice", FormatDivisibleMP(unitPrice)));
+          responseObj.push_back(Pair("timelimit", timeLimit));
+          responseObj.push_back(Pair("minimumfee", FormatDivisibleMP(minFee)));
+
+          // display info about accepts related to sell
+          responseObj.push_back(Pair("amountaccepted", FormatDivisibleMP(amountAccepted)));
+          Array acceptsMatched;
+          for(AcceptMap::iterator ait = my_accepts.begin(); ait != my_accepts.end(); ++ait)
+          {
+              Object matchedAccept;
+
+              CMPAccept accept = ait->second;
+              string acceptCombo = ait->first;
+              uint256 matchedHash = accept.getHash();
+              // does this accept match the sell?
+              if (matchedHash == sellHash)
+              {
+                  //split acceptCombo out to get the buyer address
+                  string buyer = acceptCombo.substr((acceptCombo.find("+")+1),(acceptCombo.size()-(acceptCombo.find("+")+1)));
+                  uint64_t acceptBlock = accept.getAcceptBlock();
+                  uint64_t acceptAmount = accept.getAcceptAmountRemaining();
+                  matchedAccept.push_back(Pair("buyer", buyer));
+                  matchedAccept.push_back(Pair("block", acceptBlock));
+                  matchedAccept.push_back(Pair("amount", FormatDivisibleMP(acceptAmount)));
+                  acceptsMatched.push_back(matchedAccept);
+              }
+          }
+          responseObj.push_back(Pair("accepts", acceptsMatched));
+
+          // add sell object into response array
+          response.push_back(responseObj);
+      }
+
+return response;
+}
+
+Value listblocktransactions_MP(const Array& params, bool fHelp)
+{
+   if (fHelp || params.size() != 1)
+        throw runtime_error(
+            "listblocktransactions_MP index\n"
+            "\nReturns all Master Protocol transactions in a block.\n"
+            
+            "\nArguments:\n"
+            "1. index         (numeric, required) The block height or index\n"
+            
+            "\nResult:\n"
+            "[                (array of string)\n"
+            "  \"hash\"         (string) Transaction id\n"            
+            "  ,...\n"
+            "]\n"
+
+            "\nExamples\n"
+            + HelpExampleCli("listblocktransactions_MP", "279007")
+            + HelpExampleRpc("listblocktransactions_MP", "279007")
+        );
+
+  // firstly let's get the block height given in the param
+  int blockHeight = params[0].get_int();
+  if (blockHeight < 0 || blockHeight > GetHeight())
+        throw runtime_error("Cannot display MP transactions for a non-existent block.");
+
+  // next let's obtain the block for this height
+  CBlockIndex* mpBlockIndex = chainActive[blockHeight];
+  CBlock mpBlock;
+
+  // now let's read this block in from disk so we can loop its transactions
+  if(!ReadBlockFromDisk(mpBlock, mpBlockIndex))
+        throw JSONRPCError(RPC_INTERNAL_ERROR, "Internal Error: Failed to read block from disk");
+
+  // create an array to hold our response
+  Array response;
+
+  // now we want to loop through each of the transactions in the block and run against CMPTxList::exists
+  // those that return positive add to our response array
+  BOOST_FOREACH(const CTransaction&tx, mpBlock.vtx)
+  {
+       bool mptx = p_txlistdb->exists(tx.GetHash());
+       if (mptx)
+       {
+            // later we can add a verbose flag to decode here, but for now callers can send returned txids into gettransaction_MP
+            // add the txid into the response as it's an MP transaction
+            response.push_back(tx.GetHash().GetHex());
+       }
+  }
+  return response;
 }
 
