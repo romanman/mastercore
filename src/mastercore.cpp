@@ -786,6 +786,295 @@ bool isCrowdsalePurchase(uint256 txid, string address, int64_t *propertyId = NUL
 return false;
 }
 
+// this function standardizes the RPC output for gettransaction_MP and listtransaction_MP into a central function
+bool populateRPCTransaction(uint256 txid, Object *txobj, int *rc)
+{
+    rc = 0;
+    uint256 hash;
+    hash.SetHex(params[0].get_str());
+
+    CTransaction wtx;
+    uint256 blockHash = 0;
+    if (!GetTransaction(hash, wtx, blockHash, true)) { rc = -3331; return false; }
+       //throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "No information available about transaction"); rc 3331
+
+    CMPTransaction mp_obj;
+    uint256 wtxid = txid;
+    bool bIsMine;
+    bool isMPTx = false;
+    int nFee = 0;
+    string MPTxType;
+    unsigned int MPTxTypeInt;
+    string selectedAddress;
+    string senderAddress;
+    string refAddress;
+    bool valid;
+    bool showReference = false;
+    uint64_t propertyId = 0;  //using 64 instead of 32 here as json::sprint chokes on 32 - research why
+    bool divisible = false;
+    uint64_t amount = 0;
+    string result;
+    uint64_t sell_minfee = 0;
+    unsigned char sell_timelimit = 0;
+    unsigned char sell_subaction = 0;
+    uint64_t sell_btcdesired = 0;
+    int rc=0;
+    bool crowdPurchase = false;
+    int64_t crowdPropertyId = 0;
+    int64_t crowdTokens = 0;
+    int64_t issuerTokens = 0;
+    bool crowdDivisible = false;
+    string crowdName;
+    string propertyName;
+
+    if ((0 == blockHash) || (NULL == mapBlockIndex[blockHash])) { rc = -3332; return false; }
+        //throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Exception: blockHash is 0"); rc 3332
+
+    CBlockIndex* pBlockIndex = mapBlockIndex[blockHash];
+    if (NULL == pBlockIndex) { rc = -3333; return false; }
+        //throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Exception: pBlockIndex is NULL"); rc 3333
+
+    int blockHeight = pBlockIndex->nHeight;
+    int confirmations =  1 + GetHeight() - pBlockIndex->nHeight;
+    int64_t blockTime = mapBlockIndex[blockHash]->nTime; 
+
+    mp_obj.SetNull();
+    CMPOffer temp_offer;
+
+    // replace initial MP detection with levelDB lookup instead of parse, this is much faster especially in calls like list/search
+    if (p_txlistdb->exists(wtxid))
+        {
+        //transaction is in levelDB, so we can attempt to parse it
+        int parseRC = parseTransaction(true, wtx, blockHeight, 0, &mp_obj);
+        if (0 <= parseRC) //negative RC means no MP content/badly encoded TX, we shouldn't see this if TX in levelDB but check for sanity
+        {
+            // do we have a non-zero RC, if so it's a payment, handle differently
+            if (0 < parseRC)
+            {
+                // handle as payment TX - this doesn't fit nicely into the kind of output for a MP tx so we'll do this seperately
+                // add generic TX data to the output
+                Object txobj;
+                txobj.push_back(Pair("txid", wtxid.GetHex()));
+                txobj.push_back(Pair("confirmations", confirmations));
+                txobj.push_back(Pair("blocktime", blockTime));
+                txobj.push_back(Pair("type", "DEx Purchase"));
+                // always min one subrecord, grab sender from first sub so we can display in parent as per Adam feedback
+                string tmpBuyer;
+                string tmpSeller;
+                uint64_t tmpVout;
+                uint64_t tmpNValue;
+                uint64_t tmpPropertyId;
+                p_txlistdb->getPurchaseDetails(wtxid,1,&tmpBuyer,&tmpSeller,&tmpVout,&tmpPropertyId,&tmpNValue);
+                txobj.push_back(Pair("sendingaddress", tmpBuyer));
+                // get the details of sub records for payment(s) in the tx and push into an array
+                Array purchases;
+                int numberOfPurchases=p_txlistdb->getNumberOfPurchases(wtxid);
+                if (0<numberOfPurchases)
+                {
+                    for(int purchaseNumber = 1; purchaseNumber <= numberOfPurchases; purchaseNumber++)
+                    {
+                        Object purchaseObj;
+                        string buyer;
+                        string seller;
+                        uint64_t vout;
+                        uint64_t nValue;
+                        p_txlistdb->getPurchaseDetails(wtxid,purchaseNumber,&buyer,&seller,&vout,&propertyId,&nValue);
+                        bIsMine = false;
+                        bIsMine = IsMyAddress(buyer);
+                        if (!bIsMine)
+                        {
+                            bIsMine = IsMyAddress(seller);
+                        }
+                        uint64_t amountPaid = wtx.vout[vout].nValue;
+                        purchaseObj.push_back(Pair("vout", vout));
+                        purchaseObj.push_back(Pair("amountpaid", FormatDivisibleMP(amountPaid)));
+                        purchaseObj.push_back(Pair("ismine", bIsMine));
+                        purchaseObj.push_back(Pair("referenceaddress", seller));
+                        purchaseObj.push_back(Pair("propertyid", propertyId));
+                        purchaseObj.push_back(Pair("amountbought", FormatDivisibleMP(nValue)));
+                        purchaseObj.push_back(Pair("valid", true)); //only valid purchases are stored, anything else is regular BTC tx
+                        purchases.push_back(purchaseObj);
+                    }
+                }
+                txobj.push_back(Pair("purchases", purchases));
+                // return the object
+                return txobj;
+            }
+            else
+            {
+                // otherwise RC was 0, a valid MP transaction so far
+                if (0<=mp_obj.step1())
+                {
+                    MPTxType = mp_obj.getTypeString();
+                    MPTxTypeInt = mp_obj.getType();
+                    senderAddress = mp_obj.getSender();
+                    refAddress = mp_obj.getReceiver();
+                    isMPTx = true;
+                    nFee = mp_obj.getFeePaid();
+                    int tmpblock=0;
+                    uint32_t tmptype=0;
+                    uint64_t amountNew=0;
+                    valid=getValidMPTX(wtxid, &tmpblock, &tmptype, &amountNew);
+                    //populate based on type of tx
+                    switch (MPTxTypeInt)
+                    {
+                        case MSC_TYPE_CREATE_PROPERTY_FIXED:
+                            mp_obj.step2_SmartProperty(rc);
+                            if (0 == rc)
+                            {
+                                propertyId = _my_sps->findSPByTX(wtxid); // propertyId of created property (if valid)
+                                amount = getTotalTokens(propertyId);
+                                propertyName = mp_obj.getSPName();
+                            }
+                            break;
+                        case MSC_TYPE_CREATE_PROPERTY_VARIABLE:
+                            mp_obj.step2_SmartProperty(rc);
+                            if (0 == rc)
+                            {
+                                propertyId = _my_sps->findSPByTX(wtxid); // propertyId of created property (if valid)
+                                amount = 0; // crowdsale txs always create zero tokens
+                                propertyName = mp_obj.getSPName();
+                            }
+                            break;
+                            case MSC_TYPE_CREATE_PROPERTY_MANUAL:
+                                propertyId = _my_sps->findSPByTX(wtxid); // propertyId of created property (if valid)
+                                amount = 0; // issuance of a managed token does not create tokens
+                            break;
+                            case MSC_TYPE_SIMPLE_SEND:
+                                if (0 == mp_obj.step2_Value())
+                                {
+                                    propertyId = mp_obj.getCurrency();
+                                    amount = mp_obj.getAmount();
+                                    showReference = true;
+                                    //check crowdsale invest?
+                                    crowdPurchase = isCrowdsalePurchase(wtxid, refAddress, &crowdPropertyId, &crowdTokens, &issuerTokens);
+                                    if (crowdPurchase)
+                                    {
+                                        MPTxType = "Crowdsale Purchase";
+                                        CMPSPInfo::Entry sp;
+                                        if (false == _my_sps->getSP(crowdPropertyId, sp)) { rc = -3334; return false; }
+                                            //throw JSONRPCError(RPC_INVALID_PARAMETER, "Exception: Crowdsale Purchase but Property ID does not exist"); rc 3334
+
+                                        crowdName = sp.name;
+                                        crowdDivisible = sp.isDivisible();
+                                    }
+                                }
+                            break;
+                            case MSC_TYPE_TRADE_OFFER:
+                                if (0 == mp_obj.step2_Value())
+                                {
+                                    propertyId = mp_obj.getCurrency();
+                                    amount = mp_obj.getAmount();
+                                }
+                                if (0 <= mp_obj.interpretPacket(&temp_offer))
+                                {
+                                    sell_minfee = temp_offer.getMinFee();
+                                    sell_timelimit = temp_offer.getBlockTimeLimit();
+                                    sell_subaction = temp_offer.getSubaction();
+                                    sell_btcdesired = temp_offer.getBTCDesiredOriginal();
+                                }
+                                if ((valid) && (amountNew>0)) amount=amountNew; //amount has been amended, update
+                            break;
+                            case MSC_TYPE_ACCEPT_OFFER_BTC:
+                                if (0 == mp_obj.step2_Value())
+                                {
+                                    propertyId = mp_obj.getCurrency();
+                                    amount = mp_obj.getAmount();
+                                    showReference = true;
+                                }
+                                if ((valid) && (amountNew>0)) amount=amountNew; //amount has been amended, update
+                            break;
+                            case MSC_TYPE_CLOSE_CROWDSALE:
+                                if (0 == mp_obj.step2_Value())
+                                {
+                                    propertyId = mp_obj.getCurrency();
+                                }
+                            break;
+                            case  MSC_TYPE_SEND_TO_OWNERS:
+                                if (0 == mp_obj.step2_Value())
+                                {
+                                    propertyId = mp_obj.getCurrency();
+                                    amount = mp_obj.getAmount();
+                                }
+                            break;
+                        } // end switch
+                        divisible=isPropertyDivisible(propertyId);
+                    }
+                }
+            }
+            else
+            {
+                rc = -3335;
+                return false;
+                //throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Not a Master Protocol transaction but TX exists in levelDB.  This may be a bug."); rc 3335
+            }
+        }
+        else
+        {
+            rc = -3336;
+            return false;
+                //throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Not a Master Protocol transaction"); rc 3336
+        }
+
+        if (isMPTx)
+        {
+            // test sender and reference against ismine to determine which address is ours
+            // if both ours (eg sending to another address in wallet) use reference
+            bIsMine = IsMyAddress(senderAddress);
+            if (!bIsMine)
+            {
+                bIsMine = IsMyAddress(refAddress);
+            }
+            txobj.push_back(Pair("txid", wtxid.GetHex()));
+            txobj.push_back(Pair("sendingaddress", senderAddress));
+            if (showReference) txobj.push_back(Pair("referenceaddress", refAddress));
+            txobj.push_back(Pair("ismine", bIsMine));
+            txobj.push_back(Pair("confirmations", confirmations));
+            txobj.push_back(Pair("fee", ValueFromAmount(nFee)));
+            txobj.push_back(Pair("blocktime", blockTime));
+            txobj.push_back(Pair("type", MPTxType));
+            txobj.push_back(Pair("propertyid", propertyId));
+            if ((MSC_TYPE_CREATE_PROPERTY_VARIABLE == MPTxTypeInt) || (MSC_TYPE_CREATE_PROPERTY_FIXED == MPTxTypeInt)) txobj.push_back(Pair("propertyname", propertyName));
+            txobj.push_back(Pair("divisible", divisible));
+            if (divisible)
+            {
+                txobj.push_back(Pair("amount", FormatDivisibleMP(amount))); //divisible, format w/ bitcoins VFA func
+            }
+            else
+            {
+                txobj.push_back(Pair("amount", FormatIndivisibleMP(amount))); //indivisible, push raw 64
+            }
+            if (crowdPurchase)
+            {
+                txobj.push_back(Pair("purchasedpropertyid", crowdPropertyId));
+                txobj.push_back(Pair("purchasedpropertyname", crowdName));
+                if (crowdDivisible)
+                {
+                    txobj.push_back(Pair("purchasedtokens", FormatDivisibleMP(crowdTokens))); //divisible, format w/ bitcoins VFA func
+                    txobj.push_back(Pair("issuertokens", FormatDivisibleMP(issuerTokens)));
+                }
+                else
+                {
+                    txobj.push_back(Pair("purchasedtokens", FormatIndivisibleMP(crowdTokens))); //indivisible, push raw 64
+                    txobj.push_back(Pair("issuertokens", FormatIndivisibleMP(issuerTokens)));
+                }
+            }
+            if (MSC_TYPE_TRADE_OFFER == MPTxTypeInt)
+            {
+                txobj.push_back(Pair("feerequired", ValueFromAmount(sell_minfee)));
+                txobj.push_back(Pair("timelimit", sell_timelimit));
+                //for now must mark all v0 sells as new until we find a way to store a subaction for v0 sells
+                if ((1 == sell_subaction) || ((0 == sell_subaction) && (0 < amount))) txobj.push_back(Pair("subaction", "New"));
+                if (2 == sell_subaction) txobj.push_back(Pair("subaction", "Update"));
+                if ((3 == sell_subaction) || ((0 == sell_subaction) && (0 == amount))) txobj.push_back(Pair("subaction", "Cancel"));
+                txobj.push_back(Pair("bitcoindesired", ValueFromAmount(sell_btcdesired)));
+            }
+            txobj.push_back(Pair("valid", valid));
+        }
+    }
+    return true;
+}
+
 // get total tokens for a property
 // optionally counters the number of addresses who own that property: n_owners_total
 int64_t mastercore::getTotalTokens(unsigned int propertyId, int64_t *n_owners_total)
@@ -5475,7 +5764,7 @@ Value gettransaction_MP(const Array& params, bool fHelp)
                         txobj.push_back(Pair("blocktime", blockTime));
                         txobj.push_back(Pair("type", MPTxType));
                         txobj.push_back(Pair("propertyid", propertyId));
-                        if ((MSC_TYPE_CREATE_PROPERTY_VARIABLE == MPTxTypeInt) || (MSC_TYPE_CREATE_PROPERTY_FIXED == MPTxTypeInt)) txobj.push_back(Pair("propertyname", propertyName));
+   if ((MSC_TYPE_CREATE_PROPERTY_VARIABLE == MPTxTypeInt) || (MSC_TYPE_CREATE_PROPERTY_FIXED == MPTxTypeInt)) txobj.push_back(Pair("propertyname", propertyName));
                         txobj.push_back(Pair("divisible", divisible));
                         if (divisible)
                         {
