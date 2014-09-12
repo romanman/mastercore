@@ -131,6 +131,8 @@ string FormatDivisibleMP(int64_t n, bool fSign = false);
 
 const std::string ExodusAddress();
 
+extern FILE *mp_fp;
+
 extern CCriticalSection cs_tally;
 extern char *c_strMastercoinCurrency(int i);
 
@@ -982,6 +984,7 @@ extern MetaDExMap metadex;
 
 int GetHeight(void);
 bool isPropertyDivisible(unsigned int propertyId);
+bool isCrowdsaleActive(unsigned int propertyId);
 bool isMPinBlockRange(int starting_block, int ending_block, bool bDeleteFound);
 std::string FormatIndivisibleMP(int64_t n);
 
