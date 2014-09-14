@@ -5026,7 +5026,7 @@ int validity = 0;
 }
 
 // this function standardizes the RPC output for gettransaction_MP and listtransaction_MP into a central function
-int populateRPCTransactionObject(uint256 txid, Object *txobj)
+int populateRPCTransactionObject(uint256 txid, Object *txobj, string filterAddress = NULL)
 {
     //uint256 hash;
     //hash.SetHex(params[0].get_str());
@@ -5123,6 +5123,7 @@ int populateRPCTransactionObject(uint256 txid, Object *txobj)
                         {
                             bIsMine = IsMyAddress(seller);
                         }
+                        if (NULL != filterAddress) if ((buyer != filterAddress) && (seller != filterAddress)) return -1; // return negative rc if filtering & no match
                         uint64_t amountPaid = wtx.vout[vout].nValue;
                         purchaseObj.push_back(Pair("vout", vout));
                         purchaseObj.push_back(Pair("amountpaid", FormatDivisibleMP(amountPaid)));
@@ -5147,6 +5148,7 @@ int populateRPCTransactionObject(uint256 txid, Object *txobj)
                     MPTxTypeInt = mp_obj.getType();
                     senderAddress = mp_obj.getSender();
                     refAddress = mp_obj.getReceiver();
+                    if (NULL != filterAddress) if ((senderAddress != filterAddress) && (refAddress != filterAddress)) return -1; // return negative rc if filtering & no match
                     isMPTx = true;
                     nFee = mp_obj.getFeePaid();
                     int tmpblock=0;
@@ -5333,6 +5335,8 @@ int populateRPCTransactionObject(uint256 txid, Object *txobj)
 
 Value gettransaction_MP(const Array& params, bool fHelp)
 {
+    // note this call has been refactored to use the singular populateRPCTransactionObject function
+
     if (fHelp || params.size() != 1)
         throw runtime_error(
             "gettransaction_MP \"txid\"\n"
@@ -5384,8 +5388,8 @@ Value gettransaction_MP(const Array& params, bool fHelp)
 
 Value listtransactions_MP(const Array& params, bool fHelp)
 {
-CWallet *wallet = pwalletMain;
-string sAddress = "";
+    // note this call has been refactored to use the singular populateRPCTransactionObject function
+    // note address filtering has been readded to this call, and searchtransactions_MP has been removed since performance hit no longer an issue
 
     if (fHelp || params.size() > 5)
         throw runtime_error(
@@ -5395,477 +5399,77 @@ string sAddress = "";
             + HelpExampleRpc("listtransactions_MP", "")
         );
 
-        int64_t nCount = 10;
-        if (params.size() > 0) nCount = params[0].get_int64();
-        int64_t nFrom = 0;
-        if (params.size() > 1) nFrom = params[1].get_int64();
-        int64_t nStartBlock = 0;
-        if (params.size() > 2) nStartBlock = params[2].get_int64();
-        int64_t nEndBlock = 999999;
-        if (params.size() > 3) nEndBlock = params[3].get_int64();
+    CWallet *wallet = pwalletMain;
+    string sAddress = "";
+    string addressParam = "";
+    bool addressFilter;
 
-        if (nCount < 0)
-                throw JSONRPCError(RPC_INVALID_PARAMETER, "Negative count");
-        if (nFrom < 0)
-                throw JSONRPCError(RPC_INVALID_PARAMETER, "Negative from");
-        if (nStartBlock < 0)
-                throw JSONRPCError(RPC_INVALID_PARAMETER, "Negative start block");
-        if (nEndBlock < 0)
-                throw JSONRPCError(RPC_INVALID_PARAMETER, "Negative end block");
-
-        Array response; //prep an array to hold our output
-        CMPTransaction mp_obj;
-
-        LOCK(wallet->cs_wallet);
-        // rewrite to use original listtransactions methodology from core
-        std::list<CAccountingEntry> acentries;
-        CWallet::TxItems txOrdered = pwalletMain->OrderedTxItems(acentries, "*");
-
-        // iterate backwards until we have nCount items to return:
-        for (CWallet::TxItems::reverse_iterator it = txOrdered.rbegin(); it != txOrdered.rend(); ++it)
+    //if 0 params consider all addresses in wallet, otherwise first param is filter address
+    addressFilter = false;
+    if (params.size() > 0)
+    {
+        // allow setting "" or "*" to use nCount and nFrom params with all addresses in wallet
+        if ( ("*" != params[0].get_str()) && ("" != params[0].get_str()) )
         {
-            CWalletTx *const pwtx = (*it).second.first;
-            if (pwtx != 0)
-            {
-                uint256 wtxid = pwtx->GetHash();
-                bool isMPTx = false;
-                unsigned int MPTxTypeInt;
-                string MPTxType;
-                string selectedAddress;
-                string senderAddress;
-                string refAddress;
-                bool valid;
-                uint64_t propertyId = 0;  //using 64 instead of 32 here as json::sprint chokes on 32 - research why
-                bool divisible;
-                bool showReference = false;
-                uint64_t amount = 0;
-                string result;
-                int confirmations = pwtx->GetDepthInMainChain(); //what about conflicted (<0)? how will we display these?
-                uint256 blockHash = pwtx->hashBlock;
-                if ((0 == blockHash) || (NULL == mapBlockIndex[blockHash])) continue;
-                CBlockIndex* pBlockIndex = mapBlockIndex[blockHash];
-                if (NULL == pBlockIndex) continue;
-                int blockHeight = pBlockIndex->nHeight;
-                int64_t blockTime = mapBlockIndex[pwtx->hashBlock]->nTime;
-                int blockIndex = pwtx->nIndex;
-
-                //ignore transactions not between nStartBlock and nEndBlock
-                if ((blockHeight < nStartBlock) || (blockHeight > nEndBlock)) continue;
-
-                bool crowdPurchase = false;
-                int64_t crowdPropertyId = 0;
-                int64_t crowdTokens = 0;
-                bool crowdDivisible = false;
-                string crowdName;
-
-                mp_obj.SetNull();
-                CMPOffer temp_offer;
-
-                //rather than attempt to parse every transaction in the wallet again looking for MP messages let's look at levelDB in the first instance
-                //this should provide a huge speedup for the example provided where the wallet holds 10,000 or 100,000 bitcoin transactions and only one or two
-                //MP messages, meaning we would go through parsing every TX in the wallet looking for our default return (10) MP messages causing a delayed RPC response
-
-                if (p_txlistdb->exists(wtxid))
-                {
-                    if (0 == parseTransaction(true, *pwtx, blockHeight, 0, &mp_obj))
-                    {
-                        // OK, a valid MP transaction so far
-                        if (0<=mp_obj.step1())
-                        {
-                                MPTxType = mp_obj.getTypeString();
-                                MPTxTypeInt = mp_obj.getType();
-                                senderAddress = mp_obj.getSender();
-                                refAddress = mp_obj.getReceiver();
-                                isMPTx = true;
-
-                                int tmpblock=0;
-                                uint32_t tmptype=0;
-                                uint64_t amountNew=0;
-                                valid=getValidMPTX(wtxid, &tmpblock, &tmptype, &amountNew);
-
-                                //populate based on type of tx
-                                switch (MPTxTypeInt)
-                                {
-                                     case MSC_TYPE_CREATE_PROPERTY_FIXED:
-                                          propertyId = _my_sps->findSPByTX(wtxid); // propertyId of created property (if valid)
-                                          amount = getTotalTokens(propertyId);
-                                     break;
-                                     case MSC_TYPE_CREATE_PROPERTY_VARIABLE:
-                                          propertyId = _my_sps->findSPByTX(wtxid); // propertyId of created property (if valid)
-                                          amount = 0; // crowdsale txs always create zero tokens
-                                     break;
-                                     case MSC_TYPE_CREATE_PROPERTY_MANUAL:
-                                          propertyId = _my_sps->findSPByTX(wtxid); // propertyId of created property (if valid)
-                                          amount = 0; // issuance of a managed token does not create tokens
-                                     break;
-                                     case MSC_TYPE_SIMPLE_SEND:
-                                          if (0 == mp_obj.step2_Value())
-                                          {
-                                               propertyId = mp_obj.getCurrency();
-                                               amount = mp_obj.getAmount();
-                                               showReference = true;
-                                               //check crowdsale invest?
-                                               crowdPurchase = isCrowdsalePurchase(wtxid, refAddress, &crowdPropertyId, &crowdTokens);
-                                               if (crowdPurchase)
-                                               {
-                                                  MPTxType = "Crowdsale Purchase";
-                                                  CMPSPInfo::Entry sp;
-                                                  if (false == _my_sps->getSP(crowdPropertyId, sp)) {
-                                                       throw JSONRPCError(RPC_INVALID_PARAMETER, "Exception: Crowdsale Purchase but Property ID does not exist");
-                                                  }
-                                                  crowdName = sp.name;
-                                                  crowdDivisible = sp.isDivisible();
-                                               }
-                                          }
-                                     break;
-                                     case MSC_TYPE_TRADE_OFFER:
-                                          if (0 == mp_obj.step2_Value())
-                                          {
-                                               propertyId = mp_obj.getCurrency();
-                                               amount = mp_obj.getAmount();
-                                          }
-                                          if ((valid) && (amountNew>0)) amount=amountNew; //amount has been amended, update
-                                     break;
-                                     case MSC_TYPE_ACCEPT_OFFER_BTC:
-                                          if (0 == mp_obj.step2_Value())
-                                          {
-                                               propertyId = mp_obj.getCurrency();
-                                               amount = mp_obj.getAmount();
-                                               showReference = true;
-                                          }
-                                          if ((valid) && (amountNew>0)) amount=amountNew; //amount has been amended, update
-                                     break;
-                                     case MSC_TYPE_CLOSE_CROWDSALE:
-                                          propertyId = 0; // propertyId of Crowdsale Close
-                                     break;
-                                     case  MSC_TYPE_SEND_TO_OWNERS:
-                                          if (0 == mp_obj.step2_Value())
-                                          {
-                                               propertyId = mp_obj.getCurrency();
-                                               amount = mp_obj.getAmount();
-                                          }
-                                     break;
-
-                                }
-                                divisible=isPropertyDivisible(propertyId);
-                          }
-                     }
-                }
-
-                // is this a MP transaction? switched to parsing rather than leveldb at Michael's request
-                if (isMPTx)
-                {
-                                // add the transaction object to the array
-                                Object txobj;
-                                txobj.push_back(Pair("txid", wtxid.GetHex()));
-                                txobj.push_back(Pair("sendingaddress", senderAddress));
-                                if (showReference) txobj.push_back(Pair("referenceaddress", refAddress));
-                                txobj.push_back(Pair("confirmations", confirmations));
-                                txobj.push_back(Pair("blocktime", blockTime));
-                                txobj.push_back(Pair("blockindex", blockIndex));
-                                txobj.push_back(Pair("type", MPTxType));
-                                txobj.push_back(Pair("propertyid", propertyId));
-                                txobj.push_back(Pair("divisible", divisible));
-                                if (divisible)
-                                {
-                                        txobj.push_back(Pair("amount", FormatDivisibleMP(amount))); //divisible, format w/ bitcoins VFA func
-                                }
-                                else
-                                {
-                                        txobj.push_back(Pair("amount", amount)); //indivisible, push raw 64
-                                }
-                                if (crowdPurchase)
-                                {
-                                    txobj.push_back(Pair("purchasedpropertyid", crowdPropertyId));
-                                    txobj.push_back(Pair("purchasedpropertyname", crowdName));
-                                    if (crowdDivisible)
-                                    {
-                                        txobj.push_back(Pair("purchasedtokens", FormatDivisibleMP(crowdTokens))); //divisible, format w/ bitcoins VFA func
-                                    }
-                                    else
-                                    {
-                                        txobj.push_back(Pair("purchasedtokens", crowdTokens)); //indivisible, push raw 64
-                                    }
-                                }
-                                txobj.push_back(Pair("valid", valid));
-                                response.push_back(txobj);
-                }
-            }
-            if ((int)response.size() >= (nCount+nFrom)) break; //don't burn time doing more work than we need to
-    }
-
-    // sort array here and cut on nFrom and nCount
-    if (nFrom > (int)response.size())
-        nFrom = response.size();
-    if ((nFrom + nCount) > (int)response.size())
-        nCount = response.size() - nFrom;
-    Array::iterator first = response.begin();
-    std::advance(first, nFrom);
-    Array::iterator last = response.begin();
-    std::advance(last, nFrom+nCount);
-
-    if (last != response.end()) response.erase(last, response.end());
-    if (first != response.begin()) response.erase(response.begin(), first);
-
-    std::reverse(response.begin(), response.end()); // Return oldest to newest
-    return response;   // return response array for JSON serialization
-}
-
-Value searchtransactions_MP(const Array& params, bool fHelp)
-{
-CWallet *wallet = pwalletMain;
-string sAddress = "";
-string addressParam = "";
-bool addressFilter;
-
-    if (fHelp || params.size() > 5)
-        throw runtime_error(
-            "searchtransactions_MP\n" //todo increase verbosity in help
-            "\nSearch wallet history for transactions filtered on address, counts and block boundaries\n"
-            + HelpExampleCli("searchtransactions_MP", "")
-            + HelpExampleRpc("searchtransactions_MP", "")
-        );
-
-        //if 0 params consider all addresses in wallet, otherwise first param is filter address
-        addressFilter = false;
-        if (params.size() > 0)
-        {
-                  // allow setting "" or "*" to use nCount and nFrom params with all addresses in wallet
-                  if ( ("*" != params[0].get_str()) && ("" != params[0].get_str()) )
-                  {
-                  addressParam = params[0].get_str();
-                  addressFilter = true;
-                  }
+            addressParam = params[0].get_str();
+            addressFilter = true;
         }
-
-        int64_t nCount = 10;
-        if (params.size() > 1) nCount = params[1].get_int64();
-        int64_t nFrom = 0;
-        if (params.size() > 2) nFrom = params[2].get_int64();
-        int64_t nStartBlock = 0;
-        if (params.size() > 3) nStartBlock = params[3].get_int64();
-        int64_t nEndBlock = 999999;
-        if (params.size() > 4) nEndBlock = params[4].get_int64();
-
-        if (nCount < 0)
-                throw JSONRPCError(RPC_INVALID_PARAMETER, "Negative count");
-        if (nFrom < 0)
-                throw JSONRPCError(RPC_INVALID_PARAMETER, "Negative from");
-        if (nStartBlock < 0)
-                throw JSONRPCError(RPC_INVALID_PARAMETER, "Negative start block");
-        if (nEndBlock < 0)
-                throw JSONRPCError(RPC_INVALID_PARAMETER, "Negative end block");
-
-        Array response; //prep an array to hold our output
-        CMPTransaction mp_obj;
-
-        LOCK(wallet->cs_wallet);
-        // rewrite to use original listtransactions methodology from core
-        std::list<CAccountingEntry> acentries;
-        CWallet::TxItems txOrdered = pwalletMain->OrderedTxItems(acentries, "*");
-
-        // iterate backwards until we have nCount items to return:
-        for (CWallet::TxItems::reverse_iterator it = txOrdered.rbegin(); it != txOrdered.rend(); ++it)
-        {
-            CWalletTx *const pwtx = (*it).second.first;
-            if (pwtx != 0)
-            {
-                uint256 wtxid = pwtx->GetHash();
-                bool bIsMine;
-                bool isMPTx = false;
-                unsigned int MPTxTypeInt;
-                string MPTxType;
-                string selectedAddress;
-                string senderAddress;
-                string refAddress;
-                bool valid;
-                uint64_t propertyId = 0;  //using 64 instead of 32 here as json::sprint chokes on 32 - research why
-                bool divisible;
-                bool showReference = false;
-                uint64_t amount = 0;
-                string result;
-                bool outgoingTransaction = false;
-                int confirmations = pwtx->GetDepthInMainChain(); //what about conflicted (<0)? how will we display these?
-                uint256 blockHash = pwtx->hashBlock;
-                if ((0 == blockHash) || (NULL == mapBlockIndex[blockHash])) continue;
-                CBlockIndex* pBlockIndex = mapBlockIndex[blockHash];
-                if (NULL == pBlockIndex) continue;
-                int blockHeight = pBlockIndex->nHeight;
-                int64_t blockTime = mapBlockIndex[pwtx->hashBlock]->nTime;
-                int blockIndex = pwtx->nIndex;
-
-                //ignore transactions not between nStartBlock and nEndBlock
-                if ((blockHeight < nStartBlock) || (blockHeight > nEndBlock)) continue;
-
-                bool crowdPurchase = false;
-                int64_t crowdPropertyId = 0;
-                int64_t crowdTokens = 0;
-                bool crowdDivisible = false;
-                string crowdName;
-
-                mp_obj.SetNull();
-                CMPOffer temp_offer;
-
-                //rather than attempt to parse every transaction in the wallet again looking for MP messages let's look at levelDB in the first instance
-                //this should provide a huge speedup for the example provided where the wallet holds 10,000 or 100,000 bitcoin transactions and only one or two
-                //MP messages, meaning we would go through parsing every TX in the wallet looking for our default return (10) MP messages causing a delayed RPC response
-
-                if (p_txlistdb->exists(wtxid))
-                {
-                    if (0 == parseTransaction(true, *pwtx, blockHeight, 0, &mp_obj))
-                    {
-                        // OK, a valid MP transaction so far
-                        if (0<=mp_obj.step1())
-                        {
-                                MPTxType = mp_obj.getTypeString();
-                                MPTxTypeInt = mp_obj.getType();
-                                senderAddress = mp_obj.getSender();
-                                refAddress = mp_obj.getReceiver();
-                                isMPTx = true;
-
-                                int tmpblock=0;
-                                uint32_t tmptype=0;
-                                uint64_t amountNew=0;
-                                valid=getValidMPTX(wtxid, &tmpblock, &tmptype, &amountNew);
-
-                                //populate based on type of tx
-                                switch (MPTxTypeInt)
-                                {
-                                     case MSC_TYPE_CREATE_PROPERTY_FIXED:
-                                          propertyId = _my_sps->findSPByTX(wtxid); // propertyId of created property (if valid)
-                                          amount = getTotalTokens(propertyId);
-                                     break;
-                                     case MSC_TYPE_CREATE_PROPERTY_VARIABLE:
-                                          propertyId = _my_sps->findSPByTX(wtxid); // propertyId of created property (if valid)
-                                          amount = 0; // crowdsale txs always create zero tokens
-                                     break;
-                                     case MSC_TYPE_CREATE_PROPERTY_MANUAL:
-                                          propertyId = _my_sps->findSPByTX(wtxid); // propertyId of created property (if valid)
-                                          amount = 0; // issuance of a managed token does not create tokens
-                                     break;
-                                     case MSC_TYPE_SIMPLE_SEND:
-                                          if (0 == mp_obj.step2_Value())
-                                          {
-                                               propertyId = mp_obj.getCurrency();
-                                               amount = mp_obj.getAmount();
-                                               showReference = true;
-                                               //check crowdsale invest?
-                                               crowdPurchase = isCrowdsalePurchase(wtxid, refAddress, &crowdPropertyId, &crowdTokens);
-                                               if (crowdPurchase)
-                                               {
-                                                  MPTxType = "Crowdsale Purchase";
-                                                  CMPSPInfo::Entry sp;
-                                                  if (false == _my_sps->getSP(crowdPropertyId, sp)) {
-                                                       throw JSONRPCError(RPC_INVALID_PARAMETER, "Exception: Crowdsale Purchase but Property ID does not exist");
-                                                  }
-                                                  crowdName = sp.name;
-                                                  crowdDivisible = sp.isDivisible();
-                                               }
-                                          }
-                                     break;
-                                     case MSC_TYPE_TRADE_OFFER:
-                                          if (0 == mp_obj.step2_Value())
-                                          {
-                                               propertyId = mp_obj.getCurrency();
-                                               amount = mp_obj.getAmount();
-                                          }
-                                          if ((valid) && (amountNew>0)) amount=amountNew; //amount has been amended, update
-                                     break;
-                                     case MSC_TYPE_ACCEPT_OFFER_BTC:
-                                          if (0 == mp_obj.step2_Value())
-                                          {
-                                               propertyId = mp_obj.getCurrency();
-                                               amount = mp_obj.getAmount();
-                                               showReference = true;
-                                          }
-                                          if ((valid) && (amountNew>0)) amount=amountNew; //amount has been amended, update
-                                     break;
-                                     case MSC_TYPE_CLOSE_CROWDSALE:
-                                          propertyId = 0; // propertyId of Crowdsale Close
-                                     break;
-                                     case  MSC_TYPE_SEND_TO_OWNERS:
-                                          if (0 == mp_obj.step2_Value())
-                                          {
-                                               propertyId = mp_obj.getCurrency();
-                                               amount = mp_obj.getAmount();
-                                          }
-                                     break;
-
-                                }
-                                divisible=isPropertyDivisible(propertyId);
-                          }
-                     }
-                }
-
-                // is this a MP transaction? switched to parsing rather than leveldb at Michael's request
-                if (isMPTx)
-                {
-                        // test sender and reference against ismine to determine which address is ours
-                        // if both ours (eg sending to another address in wallet) use reference
-                        bIsMine = IsMyAddress(senderAddress);
-                        if (bIsMine)
-                        {
-                                selectedAddress=senderAddress;
-                                outgoingTransaction=true;
-                        }
-                        bIsMine = IsMyAddress(refAddress);
-                        if (bIsMine)
-                        {
-                                selectedAddress=refAddress;
-                        }
-
-                        // are we filtering by address, if so compare
-                        if ((!addressFilter) || (senderAddress == addressParam) || (refAddress == addressParam))
-                        {
-                                // add the transaction object to the array
-                                Object txobj;
-                                txobj.push_back(Pair("txid", wtxid.GetHex()));
-                                txobj.push_back(Pair("sendingaddress", senderAddress));
-                                if (showReference) txobj.push_back(Pair("referenceaddress", refAddress));
-                                if (outgoingTransaction)
-                                {
-                                        txobj.push_back(Pair("direction", "out"));
-                                }
-                                else
-                                {
-                                        txobj.push_back(Pair("direction", "in"));
-                                }
-
-                                txobj.push_back(Pair("confirmations", confirmations));
-                                txobj.push_back(Pair("blocktime", blockTime));
-                                txobj.push_back(Pair("blockindex", blockIndex));
-                                txobj.push_back(Pair("type", MPTxType));
-                                txobj.push_back(Pair("propertyid", propertyId));
-                                txobj.push_back(Pair("divisible", divisible));
-                                if (divisible)
-                                {
-                                        txobj.push_back(Pair("amount", FormatDivisibleMP(amount))); //divisible, format w/ bitcoins VFA func
-                                }
-                                else
-                                {
-                                        txobj.push_back(Pair("amount", FormatIndivisibleMP(amount))); //indivisible, push raw 64
-                                }
-                                if (crowdPurchase)
-                                {
-                                    txobj.push_back(Pair("purchasedpropertyid", crowdPropertyId));
-                                    txobj.push_back(Pair("purchasedpropertyname", crowdName));
-                                    if (crowdDivisible)
-                                    {
-                                        txobj.push_back(Pair("purchasedtokens", FormatDivisibleMP(crowdTokens))); //divisible, format w/ bitcoins VFA func
-                                    }
-                                    else
-                                    {
-                                        txobj.push_back(Pair("purchasedtokens", FormatIndivisibleMP(crowdTokens))); //indivisible, push raw 64
-                                    }
-                                }
-                                txobj.push_back(Pair("valid", valid));
-                                response.push_back(txobj);
-                        }
-                }
-            }
-            if ((int)response.size() >= (nCount+nFrom)) break; //don't burn time doing more work than we need to
     }
 
+    int64_t nCount = 10;
+    if (params.size() > 0) nCount = params[1].get_int64();
+    if (nCount < 0) throw JSONRPCError(RPC_INVALID_PARAMETER, "Negative count");
+    int64_t nFrom = 0;
+    if (params.size() > 1) nFrom = params[2].get_int64();
+    if (nFrom < 0) throw JSONRPCError(RPC_INVALID_PARAMETER, "Negative from");
+    int64_t nStartBlock = 0;
+    if (params.size() > 2) nStartBlock = params[3].get_int64();
+    if (nStartBlock < 0) throw JSONRPCError(RPC_INVALID_PARAMETER, "Negative start block");
+    int64_t nEndBlock = 999999;
+    if (params.size() > 3) nEndBlock = params[4].get_int64();
+    if (nEndBlock < 0) throw JSONRPCError(RPC_INVALID_PARAMETER, "Negative end block");
+
+    Array response; //prep an array to hold our output
+
+    // rewrite to use original listtransactions methodology from core
+    LOCK(wallet->cs_wallet);
+    std::list<CAccountingEntry> acentries;
+    CWallet::TxItems txOrdered = pwalletMain->OrderedTxItems(acentries, "*");
+
+    // iterate backwards until we have nCount items to return:
+    for (CWallet::TxItems::reverse_iterator it = txOrdered.rbegin(); it != txOrdered.rend(); ++it)
+    {
+        CWalletTx *const pwtx = (*it).second.first;
+        if (pwtx != 0)
+        {
+            // get the height of the transaction and check it's within the chosen parameters
+            uint256 blockHash = pwtx->hashBlock;
+            if ((0 == blockHash) || (NULL == mapBlockIndex[blockHash])) continue;
+            CBlockIndex* pBlockIndex = mapBlockIndex[blockHash];
+            if (NULL == pBlockIndex) continue;
+            int blockHeight = pBlockIndex->nHeight;
+            if ((blockHeight < nStartBlock) || (blockHeight > nEndBlock)) continue; // ignore it if not within our range
+
+            // populateRPCTransactionObject will throw us a non-0 rc if this isn't a MP transaction, speeds up search by orders of magnitude
+            uint256 hash = pwtx->GetHash();
+            Object txobj;
+
+            // make a request to new RPC populator function to populate a transaction object (if it is a MP transaction)
+            int populateResult = -1;
+            if (addressFilter)
+            {
+                populateResult = populateRPCTransactionObject(hash, &txobj, addressParam); // pass in an address filter
+            }
+            else
+            {
+                populateResult = populateRPCTransactionObject(hash, &txobj); // no address filter
+            }
+            if (0 == populateResult) response.push_back(txobj); // add the transaction object to the response array if we get a 0 rc
+
+            // don't burn time doing more work than we need to
+            if ((int)response.size() >= (nCount+nFrom)) break;
+        }
+    }
     // sort array here and cut on nFrom and nCount
     if (nFrom > (int)response.size())
         nFrom = response.size();
@@ -5879,7 +5483,7 @@ bool addressFilter;
     if (last != response.end()) response.erase(last, response.end());
     if (first != response.begin()) response.erase(response.begin(), first);
 
-    std::reverse(response.begin(), response.end()); // Return oldest to newest
+    std::reverse(response.begin(), response.end()); // return oldest to newest?
     return response;   // return response array for JSON serialization
 }
 
