@@ -3,7 +3,6 @@
 #include "rpcserver.h"
 #include "util.h"
 #include "wallet.h"
-#include "walletdb.h"
 
 #include <stdint.h>
 #include <string.h>
@@ -621,5 +620,533 @@ Value listproperties_MP(const Array& params, bool fHelp)
         }
     }
 return response;
+}
+
+Value getcrowdsale_MP(const Array& params, bool fHelp)
+{
+   if (fHelp || params.size() < 1 )
+        throw runtime_error(
+            "getcrowdsale_MP propertyID\n"
+            "\nGet crowdsale info for a property ID\n"
+            "\nArguments:\n"
+            "1. propertyID    (int, required) The property ID\n"
+            "\nResult:\n"
+            "{\n"
+            "  \"name\" : \"PropertyName\",     (string) the property name\n"
+            "  \"active\" : false,     (boolean) whether the crowdsale is active\n"
+            "  \"issuer\" : \"1Address\",     (string) the issuer address\n"
+            "  \"creationtxid\" : \"txid\",     (string) the transaction that created the crowdsale\n"
+            "  \"propertyiddesired\" : x,     (numeric) the property ID desired\n"
+            "  \"tokensperunit\" : x,     (numeric) the number of tokens awarded per unit\n"
+            "  \"earlybonus\" : x,     (numeric) the percentage per week early bonus applied\n"
+            "  \"percenttoissuer\" : x,     (numeric) the percentage awarded to the issuer\n"
+            "  \"starttime\" : xxx,     (numeric) the start time of the crowdsale\n"
+            "  \"deadline\" : xxx,     (numeric) the time the crowdsale will automatically end\n"
+            "  \"closedearly\" : false,     (boolean) whether the crowdsale was ended early\n"
+            "  \"maxtokens\" : false,     (boolean) whether the crowdsale was ended early due to maxing the token count\n"
+            "  \"endedtime\" : xxx,     (numeric) the time the crowdsale ended\n"
+            "  \"closetx\" : \"txid\",     (string) the transaction that closed the crowdsale\n"
+            "}\n"
+
+            "\nbExamples\n"
+            + HelpExampleCli("getcrowdsale_MP", "3")
+            + HelpExampleRpc("getcrowdsale_MP", "3")
+        );
+
+    int64_t tmpPropertyId = params[0].get_int64();
+    if ((1 > tmpPropertyId) || (4294967295 < tmpPropertyId)) // not safe to do conversion
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid property ID");
+
+    unsigned int propertyId = int(tmpPropertyId);
+    CMPSPInfo::Entry sp;
+    if (false == _my_sps->getSP(propertyId, sp)) {
+      throw JSONRPCError(RPC_INVALID_PARAMETER, "Property ID does not exist");
+    }
+
+    bool showVerbose = false;
+    if (params.size() > 1) showVerbose = params[1].get_bool();
+
+    bool fixedIssuance = sp.fixed;
+    bool manualIssuance = sp.manual;
+    if (fixedIssuance || manualIssuance) // property was not a variable issuance
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Property was not created with a crowdsale");
+
+    uint256 creationHash = sp.txid;
+
+    CTransaction tx;
+    uint256 hashBlock = 0;
+    if (!GetTransaction(creationHash, tx, hashBlock, true))
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "No information available about transaction");
+
+    if ((0 == hashBlock) || (NULL == mapBlockIndex[hashBlock]))
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Exception: blockHash is 0");
+
+    Object response;
+
+    bool active = false;
+    active = isCrowdsaleActive(propertyId);
+    bool divisible = false;
+    divisible=sp.isDivisible();
+    string propertyName = sp.name;
+    int64_t startTime = mapBlockIndex[hashBlock]->nTime;
+    int64_t deadline = sp.deadline;
+    int8_t earlyBonus = sp.early_bird;
+    int8_t percentToIssuer = sp.percentage;
+    bool closeEarly = sp.close_early;
+    bool maxTokens = sp.max_tokens;
+    int64_t timeClosed = sp.timeclosed;
+    string txidClosed = sp.txid_close.GetHex();
+    string issuer = sp.issuer;
+    int64_t amountRaised = 0;
+    int64_t tokensIssued = getTotalTokens(propertyId);
+    int64_t tokensPerUnit = sp.num_tokens;
+    int64_t propertyIdDesired = sp.currency_desired;
+    std::map<std::string, std::vector<uint64_t> > database;
+
+    if (active)
+    {
+          bool crowdFound = false;
+          for(CrowdMap::const_iterator it = my_crowds.begin(); it != my_crowds.end(); ++it)
+          {
+              CMPCrowd crowd = it->second;
+              int64_t tmpPropertyId = crowd.getPropertyId();
+              if (tmpPropertyId == propertyId)
+              {
+                  crowdFound = true;
+                  database = crowd.getDatabase();
+              }
+          }
+          if (!crowdFound)
+                  throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Exception: crowdsale is flagged active but cannot be found in CrowdMap");
+    }
+    else
+    {
+        database = sp.historicalData;
+    }
+
+    fprintf(mp_fp,"\nSIZE OF DB %lu\n", sp.historicalData.size() );
+    //bool closedEarly = false; //this needs to wait for dead crowdsale persistence
+    //int64_t endedTime = 0; //this needs to wait for dead crowdsale persistence
+
+    bool divisibleDesired = false;
+    CMPSPInfo::Entry spDesired;
+    if (false == _my_sps->getSP(propertyId, spDesired)) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Desired property ID does not exist");
+    }
+    divisibleDesired = spDesired.isDivisible();
+    divisibleDesired = isPropertyDivisible(propertyIdDesired);
+
+    Array participanttxs;
+    std::map<std::string, std::vector<uint64_t> >::const_iterator it;
+    for(it = database.begin(); it != database.end(); it++)
+    {
+        Object participanttx;
+
+        string txid = it->first; //uint256 txid = it->first;
+        int64_t userTokens = it->second.at(2);
+        int64_t issuerTokens = it->second.at(3);
+        int64_t amountSent = it->second.at(0);
+
+        amountRaised += amountSent;
+        participanttx.push_back(Pair("txid", txid)); //.GetHex()).c_str();
+        if (divisibleDesired)
+        {
+             participanttx.push_back(Pair("amountsent", FormatDivisibleMP(amountSent)));
+        }
+        else
+        {
+             participanttx.push_back(Pair("amountsent", FormatIndivisibleMP(amountSent)));
+        }
+        if (divisible)
+        {
+             participanttx.push_back(Pair("participanttokens", FormatDivisibleMP(userTokens)));
+        }
+        else
+        {
+             participanttx.push_back(Pair("participanttokens", FormatIndivisibleMP(userTokens)));
+        }
+        if (divisible)
+        {
+             participanttx.push_back(Pair("issuertokens", FormatDivisibleMP(issuerTokens)));
+        }
+        else
+        {
+             participanttx.push_back(Pair("issuertokens", FormatIndivisibleMP(issuerTokens)));
+        }
+        participanttxs.push_back(participanttx);
+    }
+
+    response.push_back(Pair("name", propertyName));
+    response.push_back(Pair("active", active));
+    response.push_back(Pair("issuer", issuer));
+    response.push_back(Pair("propertyiddesired", propertyIdDesired));
+    if (divisible)
+    {
+        response.push_back(Pair("tokensperunit", FormatDivisibleMP(tokensPerUnit)));
+    }
+    else
+    {
+        response.push_back(Pair("tokensperunit", FormatIndivisibleMP(tokensPerUnit)));
+    }
+    response.push_back(Pair("earlybonus", earlyBonus));
+    response.push_back(Pair("percenttoissuer", percentToIssuer));
+    response.push_back(Pair("starttime", startTime));
+    response.push_back(Pair("deadline", deadline));
+
+    if (divisibleDesired)
+    {
+        response.push_back(Pair("amountraised", FormatDivisibleMP(amountRaised)));
+    }
+    else
+    {
+        response.push_back(Pair("amountraised", FormatIndivisibleMP(amountRaised)));
+    }
+    if (divisible)
+    {
+        response.push_back(Pair("tokensissued", FormatDivisibleMP(tokensIssued)));
+    }
+    else
+    {
+        response.push_back(Pair("tokensissued", FormatIndivisibleMP(tokensIssued)));
+    }
+    if (!active) response.push_back(Pair("closedearly", closeEarly));
+    if (!active) response.push_back(Pair("maxtokens", maxTokens));
+    if (closeEarly) response.push_back(Pair("endedtime", timeClosed));
+    if (closeEarly && !maxTokens) response.push_back(Pair("closetx", txidClosed));
+    
+    // array of txids contributing to crowdsale here if needed
+    if (showVerbose)
+    {
+        response.push_back(Pair("participanttransactions", participanttxs));
+    }
+return response;
+}
+
+Value getactivecrowdsales_MP(const Array& params, bool fHelp)
+{
+   if (fHelp)
+        throw runtime_error(
+            "getactivecrowdsales_MP\n"
+            "\nGet active crowdsales\n"
+            "\nResult:\n"
+            "{\n"
+            "  \"name\" : \"PropertyName\",     (string) the property name\n"
+            "  \"issuer\" : \"1Address\",     (string) the issuer address\n"
+            "  \"creationtxid\" : \"txid\",     (string) the transaction that created the crowdsale\n"
+            "  \"propertyiddesired\" : x,     (numeric) the property ID desired\n"
+            "  \"tokensperunit\" : x,     (numeric) the number of tokens awarded per unit\n"
+            "  \"earlybonus\" : x,     (numeric) the percentage per week early bonus applied\n"
+            "  \"percenttoissuer\" : x,     (numeric) the percentage awarded to the issuer\n"
+            "  \"starttime\" : xxx,     (numeric) the start time of the crowdsale\n"
+            "  \"deadline\" : xxx,     (numeric) the time the crowdsale will automatically end\n"
+            "}\n"
+
+            "\nbExamples\n"
+            + HelpExampleCli("getactivecrowdsales_MP", "")
+            + HelpExampleRpc("getactivecrowdsales_MP", "")
+        );
+
+      Array response;
+
+      for(CrowdMap::const_iterator it = my_crowds.begin(); it != my_crowds.end(); ++it)
+      {
+          CMPCrowd crowd = it->second;
+          CMPSPInfo::Entry sp;
+          bool spFound = _my_sps->getSP(crowd.getPropertyId(), sp);
+          int64_t propertyId = crowd.getPropertyId();
+          if (spFound)
+          {
+              Object responseObj;
+
+              uint256 creationHash = sp.txid;
+
+              CTransaction tx;
+              uint256 hashBlock = 0;
+              if (!GetTransaction(creationHash, tx, hashBlock, true))
+                  throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "No information available about transaction");
+
+              if ((0 == hashBlock) || (NULL == mapBlockIndex[hashBlock]))
+                  throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Exception: blockHash is 0");
+
+              bool divisible = false;
+              divisible=sp.isDivisible();
+              string propertyName = sp.name;
+              int64_t startTime = mapBlockIndex[hashBlock]->nTime;
+              int64_t deadline = sp.deadline;
+              int8_t earlyBonus = sp.early_bird;
+              int8_t percentToIssuer = sp.percentage;
+              string issuer = sp.issuer;
+              int64_t tokensPerUnit = sp.num_tokens;
+              int64_t propertyIdDesired = sp.currency_desired;
+
+              responseObj.push_back(Pair("propertyid", propertyId));
+              responseObj.push_back(Pair("name", propertyName));
+              responseObj.push_back(Pair("issuer", issuer));
+              responseObj.push_back(Pair("propertyiddesired", propertyIdDesired));
+              if (divisible)
+              {
+                  responseObj.push_back(Pair("tokensperunit", FormatDivisibleMP(tokensPerUnit)));
+              }
+              else
+              {
+                  responseObj.push_back(Pair("tokensperunit", FormatIndivisibleMP(tokensPerUnit)));
+              }
+              responseObj.push_back(Pair("earlybonus", earlyBonus));
+              responseObj.push_back(Pair("percenttoissuer", percentToIssuer));
+              responseObj.push_back(Pair("starttime", startTime));
+              responseObj.push_back(Pair("deadline", deadline));
+
+              response.push_back(responseObj);
+          }
+      }
+
+return response;
+}
+
+Value getgrants_MP(const Array& params, bool fHelp)
+{
+   if (fHelp || params.size() != 1 )
+        throw runtime_error(
+            "getgrants_MP propertyID\n"
+            "\nGet grant/revoke info for a property ID\n"
+            "\nArguments:\n"
+            "1. propertyID    (int, required) The property ID\n"
+            "\nResult:\n"
+            "{\n"
+            "  \"name\" : \"PropertyName\",   (string) the property name\n"
+            "  \"issuer\" : \"1Address\",     (string) the issuer address\n"
+            "  \"creationtxid\" : \"txid\",   (string) the transaction that created the crowdsale\n"
+            "  \"totaltokens\" : \"1234\",    (string) the number of tokens in circulation\n"
+            "  \"issuances\" : [\n"
+            "                    {\n"
+            "                      \"txid\" : \"txid\",   (string) the transaction that granted/revoked tokens\n"
+            "                      \"grant\" : \"1234\",  (string) the number of tokens granted\n"
+            "                    },\n"
+            "                    {\n"
+            "                      \"txid\" : \"txid\",   (string) the transaction that granted/revoked tokens\n"
+            "                      \"revoke\" : \"1234\", (string) the number of tokens revoked\n"
+            "                    },\n"
+            "                    ...\n"
+            "                  ]\n"
+            "}\n"
+
+            "\nbExamples\n"
+            + HelpExampleCli("getgrants_MP", "3")
+            + HelpExampleRpc("getgrants_MP", "3")
+        );
+
+    int64_t tmpPropertyId = params[0].get_int64();
+    if ((1 > tmpPropertyId) || (4294967295 < tmpPropertyId)) // not safe to do conversion
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid property ID");
+
+    unsigned int propertyId = int(tmpPropertyId);
+    CMPSPInfo::Entry sp;
+    if (false == _my_sps->getSP(propertyId, sp)) {
+      throw JSONRPCError(RPC_INVALID_PARAMETER, "Property ID does not exist");
+    }
+
+    bool fixedIssuance = sp.fixed;
+    bool manualIssuance = sp.manual;
+    if (fixedIssuance || !manualIssuance) // property was not a manual issuance
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Property was not created with a manual issuance");
+
+    uint256 creationHash = sp.txid;
+
+    Object response;
+
+//    bool active = isCrowdsaleActive(propertyId);  // UNUSED WARNING
+//    bool divisible = sp.isDivisible(); // UNUSED WARNING
+    string propertyName = sp.name;
+    string issuer = sp.issuer;
+    int64_t totalTokens = getTotalTokens(propertyId);
+
+    Array issuancetxs;
+    std::map<std::string, std::vector<uint64_t> >::const_iterator it;
+    for(it = sp.historicalData.begin(); it != sp.historicalData.end(); it++)
+    {
+
+        string txid = it->first; //uint256 txid = it->first;
+        int64_t grantedTokens = it->second.at(0);
+        int64_t revokedTokens = it->second.at(1);
+        if (grantedTokens > 0){
+          Object granttx;
+          granttx.push_back(Pair("txid", txid));
+          if (sp.isDivisible()) {
+            granttx.push_back(Pair("grant", FormatDivisibleMP(grantedTokens)));
+          } else {
+            granttx.push_back(Pair("grant", FormatIndivisibleMP(grantedTokens)));
+          }
+          issuancetxs.push_back(granttx);
+        }
+
+        if (revokedTokens > 0){
+          Object revoketx;
+          revoketx.push_back(Pair("txid", txid));
+          if (sp.isDivisible()) {
+            revoketx.push_back(Pair("revoke", FormatDivisibleMP(revokedTokens)));
+          } else {
+            revoketx.push_back(Pair("revoke", FormatIndivisibleMP(revokedTokens)));
+          }
+          issuancetxs.push_back(revoketx);
+        }
+    }
+
+    response.push_back(Pair("name", propertyName));
+    response.push_back(Pair("issuer", issuer));
+    response.push_back(Pair("creationtxid", creationHash.GetHex()));
+    if (sp.isDivisible()) {
+      response.push_back(Pair("totaltokens", FormatDivisibleMP(totalTokens)));
+    } else {
+      response.push_back(Pair("totaltokens", FormatIndivisibleMP(totalTokens)));
+    }
+    response.push_back(Pair("issuances", issuancetxs));
+    return response;
+}
+
+Value getactivedexsells_MP(const Array& params, bool fHelp)
+{
+   if (fHelp)
+        throw runtime_error(
+            "getactivedexsells_MP\n"
+            "\nGet currently active distributed exchange sell offers\n"
+            "\nResult:\n"
+            "{\n"
+            "}\n"
+
+            "\nbExamples\n"
+            + HelpExampleCli("getactivedexsells_MP", "")
+            + HelpExampleRpc("getactivedexsells_MP", "")
+        );
+
+      //if 0 params list all sells, otherwise first param is filter address
+      bool addressFilter = false;
+      string addressParam;
+
+      if (params.size() > 0)
+      {
+          addressParam = params[0].get_str();
+          addressFilter = true;
+      }
+
+      Array response;
+
+      for(OfferMap::iterator it = my_offers.begin(); it != my_offers.end(); ++it)
+      {
+          CMPOffer selloffer = it->second;
+          string sellCombo = it->first;
+          string seller = sellCombo.substr(0, sellCombo.size()-2);
+
+          //filtering
+          if ((addressFilter) && (seller != addressParam)) continue;
+
+          uint256 sellHash = selloffer.getHash();
+          string txid = sellHash.GetHex();
+          uint64_t propertyId = selloffer.getCurrency();
+          uint64_t minFee = selloffer.getMinFee();
+          unsigned char timeLimit = selloffer.getBlockTimeLimit();
+          uint64_t sellOfferAmount = selloffer.getOfferAmountOriginal(); //badly named - "Original" implies off the wire, but is amended amount
+          uint64_t sellBitcoinDesired = selloffer.getBTCDesiredOriginal(); //badly named - "Original" implies off the wire, but is amended amount
+          uint64_t amountAvailable = getMPbalance(seller, propertyId, SELLOFFER_RESERVE);
+          uint64_t amountAccepted = getMPbalance(seller, propertyId, ACCEPT_RESERVE);
+
+          //unit price & updated bitcoin desired calcs
+          double unitPriceFloat = 0;
+          if ((sellOfferAmount>0) && (sellBitcoinDesired > 0)) unitPriceFloat = (double)sellBitcoinDesired/(double)sellOfferAmount; //divide by zero protection
+          uint64_t unitPrice = rounduint64(unitPriceFloat * COIN);
+          uint64_t bitcoinDesired = rounduint64(amountAvailable*unitPriceFloat);
+
+          Object responseObj;
+
+          responseObj.push_back(Pair("txid", txid));
+          responseObj.push_back(Pair("propertyid", propertyId));
+          responseObj.push_back(Pair("seller", seller));
+          responseObj.push_back(Pair("amountavailable", FormatDivisibleMP(amountAvailable)));
+          responseObj.push_back(Pair("bitcoindesired", FormatDivisibleMP(bitcoinDesired)));
+          responseObj.push_back(Pair("unitprice", FormatDivisibleMP(unitPrice)));
+          responseObj.push_back(Pair("timelimit", timeLimit));
+          responseObj.push_back(Pair("minimumfee", FormatDivisibleMP(minFee)));
+
+          // display info about accepts related to sell
+          responseObj.push_back(Pair("amountaccepted", FormatDivisibleMP(amountAccepted)));
+          Array acceptsMatched;
+          for(AcceptMap::iterator ait = my_accepts.begin(); ait != my_accepts.end(); ++ait)
+          {
+              Object matchedAccept;
+
+              CMPAccept accept = ait->second;
+              string acceptCombo = ait->first;
+              uint256 matchedHash = accept.getHash();
+              // does this accept match the sell?
+              if (matchedHash == sellHash)
+              {
+                  //split acceptCombo out to get the buyer address
+                  string buyer = acceptCombo.substr((acceptCombo.find("+")+1),(acceptCombo.size()-(acceptCombo.find("+")+1)));
+                  uint64_t acceptBlock = accept.getAcceptBlock();
+                  uint64_t acceptAmount = accept.getAcceptAmountRemaining();
+                  matchedAccept.push_back(Pair("buyer", buyer));
+                  matchedAccept.push_back(Pair("block", acceptBlock));
+                  matchedAccept.push_back(Pair("amount", FormatDivisibleMP(acceptAmount)));
+                  acceptsMatched.push_back(matchedAccept);
+              }
+          }
+          responseObj.push_back(Pair("accepts", acceptsMatched));
+
+          // add sell object into response array
+          response.push_back(responseObj);
+      }
+
+return response;
+}
+
+Value listblocktransactions_MP(const Array& params, bool fHelp)
+{
+   if (fHelp || params.size() != 1)
+        throw runtime_error(
+            "listblocktransactions_MP index\n"
+            "\nReturns all Master Protocol transactions in a block.\n"
+            
+            "\nArguments:\n"
+            "1. index         (numeric, required) The block height or index\n"
+            
+            "\nResult:\n"
+            "[                (array of string)\n"
+            "  \"hash\"         (string) Transaction id\n"            
+            "  ,...\n"
+            "]\n"
+
+            "\nExamples\n"
+            + HelpExampleCli("listblocktransactions_MP", "279007")
+            + HelpExampleRpc("listblocktransactions_MP", "279007")
+        );
+
+  // firstly let's get the block height given in the param
+  int blockHeight = params[0].get_int();
+  if (blockHeight < 0 || blockHeight > GetHeight())
+        throw runtime_error("Cannot display MP transactions for a non-existent block.");
+
+  // next let's obtain the block for this height
+  CBlockIndex* mpBlockIndex = chainActive[blockHeight];
+  CBlock mpBlock;
+
+  // now let's read this block in from disk so we can loop its transactions
+  if(!ReadBlockFromDisk(mpBlock, mpBlockIndex))
+        throw JSONRPCError(RPC_INTERNAL_ERROR, "Internal Error: Failed to read block from disk");
+
+  // create an array to hold our response
+  Array response;
+
+  // now we want to loop through each of the transactions in the block and run against CMPTxList::exists
+  // those that return positive add to our response array
+  BOOST_FOREACH(const CTransaction&tx, mpBlock.vtx)
+  {
+       bool mptx = p_txlistdb->exists(tx.GetHash());
+       if (mptx)
+       {
+            // later we can add a verbose flag to decode here, but for now callers can send returned txids into gettransaction_MP
+            // add the txid into the response as it's an MP transaction
+            response.push_back(tx.GetHash().GetHex());
+       }
+  }
+  return response;
 }
 
