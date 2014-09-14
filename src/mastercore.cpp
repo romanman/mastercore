@@ -5026,15 +5026,14 @@ int validity = 0;
 }
 
 // this function standardizes the RPC output for gettransaction_MP and listtransaction_MP into a central function
-bool populateRPCTransactionObject(uint256 txid, Object *txobj, int *frc)
+int populateRPCTransactionObject(uint256 txid, Object *txobj)
 {
-    frc = 0;
     //uint256 hash;
     //hash.SetHex(params[0].get_str());
 
     CTransaction wtx;
     uint256 blockHash = 0;
-    if (!GetTransaction(txid, wtx, blockHash, true)) { *frc = -3331; return false; }
+    if (!GetTransaction(txid, wtx, blockHash, true)) { return -3331; }
        //throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "No information available about transaction"); rc 3331
 
     CMPTransaction mp_obj;
@@ -5066,11 +5065,11 @@ bool populateRPCTransactionObject(uint256 txid, Object *txobj, int *frc)
     string crowdName;
     string propertyName;
 
-    if ((0 == blockHash) || (NULL == mapBlockIndex[blockHash])) { *frc = -3332; return false; }
+    if ((0 == blockHash) || (NULL == mapBlockIndex[blockHash])) { return -3332; }
         //throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Exception: blockHash is 0"); rc 3332
 
     CBlockIndex* pBlockIndex = mapBlockIndex[blockHash];
-    if (NULL == pBlockIndex) { *frc = -3333; return false; }
+    if (NULL == pBlockIndex) { return -3333; }
         //throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Exception: pBlockIndex is NULL"); rc 3333
 
     int blockHeight = pBlockIndex->nHeight;
@@ -5137,7 +5136,7 @@ bool populateRPCTransactionObject(uint256 txid, Object *txobj, int *frc)
                 }
                 txobj->push_back(Pair("purchases", purchases));
                 // return the object
-                return txobj;
+                return 0;
             }
             else
             {
@@ -5157,6 +5156,20 @@ bool populateRPCTransactionObject(uint256 txid, Object *txobj, int *frc)
                     //populate based on type of tx
                     switch (MPTxTypeInt)
                     {
+                        case MSC_TYPE_GRANT_PROPERTY_TOKENS:
+                             if (0 == mp_obj.step2_Value())
+                             {
+                                propertyId = mp_obj.getCurrency();
+                                amount = mp_obj.getAmount();
+                             }
+                        break;
+                        case MSC_TYPE_REVOKE_PROPERTY_TOKENS:
+                             if (0 == mp_obj.step2_Value())
+                             {
+                                propertyId = mp_obj.getCurrency();
+                                amount = mp_obj.getAmount();
+                             }
+                        break;
                         case MSC_TYPE_CREATE_PROPERTY_FIXED:
                             mp_obj.step2_SmartProperty(rc);
                             if (0 == rc)
@@ -5176,8 +5189,15 @@ bool populateRPCTransactionObject(uint256 txid, Object *txobj, int *frc)
                             }
                         break;
                         case MSC_TYPE_CREATE_PROPERTY_MANUAL:
-                            propertyId = _my_sps->findSPByTX(wtxid); // propertyId of created property (if valid)
-                            amount = 0; // issuance of a managed token does not create tokens
+                            //propertyId = _my_sps->findSPByTX(wtxid); // propertyId of created property (if valid)
+                            //amount = 0; // issuance of a managed token does not create tokens
+                            mp_obj.step2_SmartProperty(rc);
+                            if (0 == rc)
+                            {
+                                propertyId = _my_sps->findSPByTX(wtxid); // propertyId of created property (if valid)
+                                amount = 0; // crowdsale txs always create zero tokens
+                                propertyName = mp_obj.getSPName();
+                            }
                         break;
                         case MSC_TYPE_SIMPLE_SEND:
                             if (0 == mp_obj.step2_Value())
@@ -5191,7 +5211,7 @@ bool populateRPCTransactionObject(uint256 txid, Object *txobj, int *frc)
                                 {
                                     MPTxType = "Crowdsale Purchase";
                                     CMPSPInfo::Entry sp;
-                                    if (false == _my_sps->getSP(crowdPropertyId, sp)) { *frc = -3334; return false; }
+                                    if (false == _my_sps->getSP(crowdPropertyId, sp)) { return -3334; }
                                         //throw JSONRPCError(RPC_INVALID_PARAMETER, "Exception: Crowdsale Purchase but Property ID does not exist"); rc 3334
 
                                     crowdName = sp.name;
@@ -5243,15 +5263,13 @@ bool populateRPCTransactionObject(uint256 txid, Object *txobj, int *frc)
         } //negative RC check
         else
         {
-            *frc = -3335;
-            return false;
+            return -3335;
             //throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Not a Master Protocol transaction but TX exists in levelDB.  This may be a bug."); rc 3335
         }
     }
     else
     {
-        *frc = -3336;
-        return false;
+        return -3336;
         //throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Not a Master Protocol transaction"); rc 3336
     }
 
@@ -5310,7 +5328,7 @@ bool populateRPCTransactionObject(uint256 txid, Object *txobj, int *frc)
         }
         txobj->push_back(Pair("valid", valid));
     }
-    return true;
+    return 0;
 }
 
 Value gettransaction_MP(const Array& params, bool fHelp)
@@ -5323,24 +5341,18 @@ Value gettransaction_MP(const Array& params, bool fHelp)
             "1. \"txid\"    (string, required) The transaction id\n"
             "\nResult:\n"
             "{\n"
-            "  \"amount\" : x.xxx,        (string) The transaction amount in btc\n"
+            "  \"txid\" : \"transactionid\",   (string) The transaction id\n"
+            "  \"sendingaddress\" : \"sender\",    (string) The sending address\n"
+            "  \"referenceaddress\" : \"receiving address\",    (string) The receiving address (if applicable)\n"
+            "  \"ismine\" : true/false\",    (boolean) Whether the transaction involes an address in the wallet\n"
             "  \"confirmations\" : n,     (numeric) The number of confirmations\n"
-            "  \"blockhash\" : \"hash\",  (string) The block hash\n"
-            "  \"blockindex\" : xx,       (numeric) The block index\n"
             "  \"blocktime\" : ttt,       (numeric) The time in seconds since epoch (1 Jan 1970 GMT)\n"
-            "  \"txid\" : \"transactionid\",   (string) The transaction id, see also https://blockchain.info/tx/[transactionid]\n"
-            "  \"time\" : ttt,            (numeric) The transaction time in seconds since epoch (1 Jan 1970 GMT)\n"
-            "  \"timereceived\" : ttt,    (numeric) The time received in seconds since epoch (1 Jan 1970 GMT)\n"
-            "  \"details\" : [\n"
-            "    {\n"
-            "      \"account\" : \"accountname\",  (string) The account name involved in the transaction, can be \"\" for the default account.\n"
-            "      \"address\" : \"bitcoinaddress\",   (string) The bitcoin address involved in the transaction\n"
-            "      \"category\" : \"send|receive\",    (string) The category, either 'send' or 'receive'\n"
-            "      \"amount\" : x.xxx                  (string) The amount in btc\n"
-            "    }\n"
-            "    ,...\n"
-            "  ],\n"
-            "  \"hex\" : \"data\"         (string) Raw data for transaction\n"
+            "  \"type\" : \"transaction type\",    (string) The type of transaction\n"
+            "  \"propertyid\" : \"property id\",    (numeric) The ID of the property transacted\n"
+            "  \"propertyname\" : \"property name\",    (string) The name of the property (for creation transactions)\n"
+            "  \"divisible\" : true/false\",    (boolean) Whether the property is divisible\n"
+            "  \"amount\" : \"x.xxx\",     (string) The transaction amount\n"
+            "  \"valid\" : true/false\",    (boolean) Whether the transaction is valid\n"
             "}\n"
 
             "\nbExamples\n"
@@ -5350,17 +5362,13 @@ Value gettransaction_MP(const Array& params, bool fHelp)
 
     uint256 hash;
     hash.SetHex(params[0].get_str());
-
     Object txobj;
-    int frc;
-
     // make a request to new RPC populator function to populate a transaction object
-    bool populateResult = populateRPCTransactionObject(hash, &txobj, &frc);
-
+    int populateResult = populateRPCTransactionObject(hash, &txobj);
     // check the response, throw any error codes if false
-    if (!populateResult)
+    if (0>populateResult)
     {
-        switch (frc)
+        switch (populateResult)
         {
             case -3331: throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "No information available about transaction");
             case -3332: throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Exception: blockHash is 0, is transaction unconfirmed?");
@@ -5370,7 +5378,6 @@ Value gettransaction_MP(const Array& params, bool fHelp)
             case -3336: throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Not a Master Protocol transaction");
         }
     }
-
     // everything seems ok, return the object
     return txobj;
 }
