@@ -3277,7 +3277,7 @@ int mastercore_handler_block_begin(int nBlockPrev, CBlockIndex const * pBlockInd
     reorgRecoveryMode = 0;  // clear reorgRecovery here as this is likely re-entrant
 
     // reset states
-    clear_all_state();
+    if(!readPersistence()) clear_all_state();
     p_txlistdb->isMPinBlockRange(pBlockIndex->nHeight, reorgRecoveryMaxHeight, true);
     reorgRecoveryMaxHeight = 0;
 
