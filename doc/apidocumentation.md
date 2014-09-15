@@ -166,9 +166,9 @@ The **listtransactions_MP** call allows for retrieval of the last n Master Proto
 - **_startblock (integer):_** Only show transactions at or after this block height
 - **_endblock (integer):_** Only show transactions at or before this block height
 
-Optional parameters can be combined as follows ```listtransactions_MP 50 100``` to list the 50 most recent transactions across all addresses in the wallet, skipping the first 100.
+Optional parameters can be combined as follows ```listtransactions_MP "*" 50 100``` to list the 50 most recent transactions across all addresses in the wallet, skipping the first 100.
 
-Optional parameters can be combined as follows ```listtransactions_MP 99999 0 301000 302000``` to list the 99999 most recent transactions across all addresses in the wallet between blocks 301000 and 302000.
+Optional parameters can be combined as follows ```listtransactions_MP "*" 99999 0 301000 302000``` to list the 99999 most recent transactions across all addresses in the wallet between blocks 301000 and 302000.
 
 **Examples**
 
