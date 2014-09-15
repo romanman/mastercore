@@ -47,8 +47,8 @@ using namespace leveldb;
 
 using namespace mastercore;
 
-#include "mastercore_tx.h"
 #include "mastercore_ex.h"
+#include "mastercore_tx.h"
 
 extern int msc_debug_dex, msc_debug_metadex;
 
@@ -385,7 +385,8 @@ const string accept_combo = STR_ACCEPT_ADDR_CURR_ADDR_COMBO(seller, buyer);
 // TODO: verify proper partial payment handling
 int mastercore::DEx_payment(uint256 txid, unsigned int vout, string seller, string buyer, uint64_t BTC_paid, int blockNow, uint64_t *nAmended)
 {
-  if (msc_debug_dex) fprintf(mp_fp, "%s()\n", __FUNCTION__);
+//  if (msc_debug_dex) fprintf(mp_fp, "%s()\n", __FUNCTION__);
+
 int rc = DEX_ERROR_PAYMENT;
 CMPAccept *p_accept;
 int curr;

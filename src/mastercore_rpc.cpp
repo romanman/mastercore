@@ -34,6 +34,7 @@ using namespace json_spirit;
 
 using namespace mastercore;
 
+#include "mastercore_ex.h"
 #include "mastercore_tx.h"
 
 // display the tally map & the offer/accept list(s)
