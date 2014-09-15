@@ -875,8 +875,8 @@ Value getactivecrowdsales_MP(const Array& params, bool fHelp)
               string propertyName = sp.name;
               int64_t startTime = mapBlockIndex[hashBlock]->nTime;
               int64_t deadline = sp.deadline;
-              int8_t earlyBonus = sp.early_bird;
-              int8_t percentToIssuer = sp.percentage;
+              uint8_t earlyBonus = sp.early_bird;
+              uint8_t percentToIssuer = sp.percentage;
               string issuer = sp.issuer;
               int64_t tokensPerUnit = sp.num_tokens;
               int64_t propertyIdDesired = sp.currency_desired;
