@@ -690,8 +690,8 @@ Value getcrowdsale_MP(const Array& params, bool fHelp)
     string propertyName = sp.name;
     int64_t startTime = mapBlockIndex[hashBlock]->nTime;
     int64_t deadline = sp.deadline;
-    int8_t earlyBonus = sp.early_bird;
-    int8_t percentToIssuer = sp.percentage;
+    uint8_t earlyBonus = sp.early_bird;
+    uint8_t percentToIssuer = sp.percentage;
     bool closeEarly = sp.close_early;
     bool maxTokens = sp.max_tokens;
     int64_t timeClosed = sp.timeclosed;
