@@ -1144,6 +1144,8 @@ extern AcceptMap my_accepts;
 extern CrowdMap my_crowds;
 extern MetaDExMap metadex;
 
+bool isBigEndian(void);
+
 int GetHeight(void);
 bool isPropertyDivisible(unsigned int propertyId);
 bool isCrowdsaleActive(unsigned int propertyId);
@@ -1162,6 +1164,7 @@ CMPTally *getTally(const string & address);
 int64_t getTotalTokens(unsigned int propertyId, int64_t *n_owners_total = NULL);
 
 char *c_strMastercoinType(int i);
+
 }
 
 #endif

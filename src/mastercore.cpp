@@ -252,14 +252,29 @@ char *c_strPropertyType(int i)
   return (char *) "*** property type error ***";
 }
 
+bool mastercore::isBigEndian()
+{
+  union
+  {
+    uint32_t i;
+    char c[4];
+  } bint = {0x01020304};
+
+  return 1 == bint.c[0];
+}
+
 void swapByteOrder16(unsigned short& us)
 {
+  if (isBigEndian()) return;
+
     us = (us >> 8) |
          (us << 8);
 }
 
 void swapByteOrder32(unsigned int& ui)
 {
+  if (isBigEndian()) return;
+
     ui = (ui >> 24) |
          ((ui<<8) & 0x00FF0000) |
          ((ui>>8) & 0x0000FF00) |
@@ -268,6 +283,8 @@ void swapByteOrder32(unsigned int& ui)
 
 void swapByteOrder64(uint64_t& ull)
 {
+  if (isBigEndian()) return;
+
     ull = (ull >> 56) |
           ((ull<<40) & 0x00FF000000000000) |
           ((ull<<24) & 0x0000FF0000000000) |
@@ -817,7 +834,7 @@ const uint64_t amount = getMPbalance(seller_addr, curr, SELLOFFER_RESERVE);
   my_offers.erase(my_it);
 
   if (msc_debug_dex)
-   fprintf(mp_fp, "%s(%s|%s), line %d, file: %s\n", __FUNCTION__, seller_addr.c_str(), combo.c_str(), __LINE__, __FILE__);
+   fprintf(mp_fp, "%s(%s|%s)\n", __FUNCTION__, seller_addr.c_str(), combo.c_str());
 
   return 0;
 }
@@ -825,10 +842,10 @@ const uint64_t amount = getMPbalance(seller_addr, curr, SELLOFFER_RESERVE);
 // returns 0 if everything is OK
 int DEx_offerUpdate(const string &seller_addr, unsigned int curr, uint64_t nValue, int block, uint64_t desired, uint64_t fee, unsigned char btl, const uint256 &txid, uint64_t *nAmended = NULL) 
 {
-  if (msc_debug_dex) fprintf(mp_fp, "%s(), line %d, file: %s\n", __FUNCTION__, __LINE__, __FILE__);
+  if (msc_debug_dex) fprintf(mp_fp, "%s()\n", __FUNCTION__);
 int rc = DEX_ERROR_SELLOFFER;
 
-  fprintf(mp_fp, "%s(%s, %d), line %d, file: %s\n", __FUNCTION__, seller_addr.c_str(), curr, __LINE__, __FILE__);
+  fprintf(mp_fp, "%s(%s, %d)\n", __FUNCTION__, seller_addr.c_str(), curr);
 
   if (!DEx_offerExists(seller_addr, curr)) return (DEX_ERROR_SELLOFFER -12); // offer does not exist
 
@@ -847,7 +864,7 @@ int DEx_acceptCreate(const string &buyer, const string &seller, int curr, uint64
 {
 int rc = DEX_ERROR_ACCEPT - 10;
 
-  if (msc_debug_dex) fprintf(mp_fp, "%s(), line %d, file: %s\n", __FUNCTION__, __LINE__, __FILE__);
+  if (msc_debug_dex) fprintf(mp_fp, "%s()\n", __FUNCTION__);
 
 OfferMap::iterator my_it;
 const string selloffer_combo = STR_SELLOFFER_ADDR_CURR_COMBO(seller);
@@ -867,7 +884,7 @@ uint64_t nActualAmount = getMPbalance(seller, curr, SELLOFFER_RESERVE);
     return DEX_ERROR_ACCEPT -105;
   }
 
-  fprintf(mp_fp, "%s(%s) OFFER FOUND, line %d, file: %s\n", __FUNCTION__, selloffer_combo.c_str(), __LINE__, __FILE__);
+  fprintf(mp_fp, "%s(%s) OFFER FOUND\n", __FUNCTION__, selloffer_combo.c_str());
 
   // the older accept is the valid one: do not accept any new ones!
   if (DEx_getAccept(seller, curr, buyer))
@@ -905,7 +922,7 @@ uint64_t nActualAmount = getMPbalance(seller, curr, SELLOFFER_RESERVE);
 // returns 0 if everything is OK
 int DEx_acceptDestroy(const string &buyer, const string &seller, int curr, bool bForceErase = false)
 {
-  if (msc_debug_dex) fprintf(mp_fp, "%s(), line %d, file: %s\n", __FUNCTION__, __LINE__, __FILE__);
+  if (msc_debug_dex) fprintf(mp_fp, "%s()\n", __FUNCTION__);
 int rc = DEX_ERROR_ACCEPT - 20;
 CMPOffer *p_offer = DEx_getOffer(seller, curr);
 CMPAccept *p_accept = DEx_getAccept(seller, curr, buyer);
@@ -923,8 +940,7 @@ const string accept_combo = STR_ACCEPT_ADDR_CURR_ADDR_COMBO(seller, buyer);
   }
   else
   {
-    fprintf(mp_fp, "%s() HASHES: offer=%s, accept=%s, line %d, file: %s\n", __FUNCTION__,
-     p_offer->getHash().GetHex().c_str(), p_accept->getHash().GetHex().c_str(), __LINE__, __FILE__);
+    fprintf(mp_fp, "%s() HASHES: offer=%s, accept=%s\n", __FUNCTION__, p_offer->getHash().GetHex().c_str(), p_accept->getHash().GetHex().c_str());
 
     // offer exists, determine whether it's the original offer or some random new one
     if (p_offer->getHash() == p_accept->getHash())
@@ -972,7 +988,7 @@ const string accept_combo = STR_ACCEPT_ADDR_CURR_ADDR_COMBO(seller, buyer);
 // TODO: verify proper partial payment handling
 int DEx_payment(uint256 txid, unsigned int vout, string seller, string buyer, uint64_t BTC_paid, int blockNow, uint64_t *nAmended = NULL)
 {
-  if (msc_debug_dex) fprintf(mp_fp, "%s(), line %d, file: %s\n", __FUNCTION__, __LINE__, __FILE__);
+  if (msc_debug_dex) fprintf(mp_fp, "%s()\n", __FUNCTION__);
 int rc = DEX_ERROR_PAYMENT;
 CMPAccept *p_accept;
 int curr;
@@ -2961,7 +2977,6 @@ int mastercore_init()
 
 #ifndef  DISABLE_LOG_FILE
   boost::filesystem::path pathTempLog = GetDataDir() / LOG_FILENAME;
-//  boost::filesystem::path pathTempLog = GetTempPath() / LOG_FILENAME;
   mp_fp = fopen(pathTempLog.string().c_str(), "a");
 #else
   mp_fp = stdout;
@@ -3702,7 +3717,7 @@ unsigned int n_found = 0;
     }
   }
 
-  printf("%s(%d, %d); n_found= %d, line %d, file: %s\n", __FUNCTION__, starting_block, ending_block, n_found, __LINE__, __FILE__);
+  printf("%s(%d, %d); n_found= %d\n", __FUNCTION__, starting_block, ending_block, n_found);
 
   delete it;
 
