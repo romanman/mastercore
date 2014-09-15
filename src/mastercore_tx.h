@@ -172,5 +172,7 @@ public:
   }
 };
 
+int parseTransaction(bool bRPConly, const CTransaction &wtx, int nBlock, unsigned int idx, CMPTransaction *mp_tx, unsigned int nTime=0);
+
 #endif // #ifndef _MASTERCOIN_TX
 

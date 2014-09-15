@@ -1154,6 +1154,7 @@ string strMPCurrency(unsigned int i);
 int GetHeight(void);
 bool isPropertyDivisible(unsigned int propertyId);
 bool isCrowdsaleActive(unsigned int propertyId);
+bool isCrowdsalePurchase(uint256 txid, string address, int64_t *propertyId = NULL, int64_t *userTokens = NULL, int64_t *issuerTokens = NULL);
 bool isMPinBlockRange(int starting_block, int ending_block, bool bDeleteFound);
 std::string FormatIndivisibleMP(int64_t n);
 
@@ -1172,6 +1173,8 @@ char *c_strMastercoinType(int i);
 char *c_strPropertyType(int i);
 
 bool isTransactionTypeAllowed(int txBlock, unsigned int txCurrency, unsigned int txType, unsigned short version);
+
+bool getValidMPTX(const uint256 &txid, int *block = NULL, unsigned int *type = NULL, uint64_t *nAmended = NULL);
 }
 
 #endif
