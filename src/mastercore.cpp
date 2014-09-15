@@ -1040,7 +1040,7 @@ const double available_reward=all_reward * part_available;
 
   if (msc_debug_exo) fprintf(mp_fp, "devmsc=%lu, exodus_prev=%lu, exodus_delta=%ld\n", devmsc, exodus_prev, exodus_delta);
 
-  // per Zathras -- skip if a block's timestamp is older than that of a previous one!
+  // skip if a block's timestamp is older than that of a previous one!
   if (0>exodus_delta) return 0;
 
   update_tally_map(exodus_address, MASTERCOIN_CURRENCY_MSC, exodus_delta, MONEY);
@@ -1085,7 +1085,7 @@ unsigned char sha_result[128];
 vector<unsigned char> vec_chars;
 
   strcpy((char *)sha_input, address.c_str());
-  // do only as many re-hashes as there are mastercoin packets, per spec, 255 per Zathras
+  // do only as many re-hashes as there are mastercoin packets, 255 per spec
   for (unsigned int j = 1; j<=MAX_SHA256_OBFUSCATION_TIMES;j++)
   {
     SHA256(sha_input, strlen((const char *)sha_input), sha_result);
