@@ -5026,7 +5026,7 @@ int validity = 0;
 }
 
 // this function standardizes the RPC output for gettransaction_MP and listtransaction_MP into a central function
-int populateRPCTransactionObject(uint256 txid, Object *txobj, string filterAddress = NULL)
+int populateRPCTransactionObject(uint256 txid, Object *txobj, string filterAddress = "")
 {
     //uint256 hash;
     //hash.SetHex(params[0].get_str());
@@ -5123,7 +5123,7 @@ int populateRPCTransactionObject(uint256 txid, Object *txobj, string filterAddre
                         {
                             bIsMine = IsMyAddress(seller);
                         }
-                        if (NULL != filterAddress) if ((buyer != filterAddress) && (seller != filterAddress)) return -1; // return negative rc if filtering & no match
+                        if (!filterAddress.empty()) if ((buyer != filterAddress) && (seller != filterAddress)) return -1; // return negative rc if filtering & no match
                         uint64_t amountPaid = wtx.vout[vout].nValue;
                         purchaseObj.push_back(Pair("vout", vout));
                         purchaseObj.push_back(Pair("amountpaid", FormatDivisibleMP(amountPaid)));
@@ -5148,7 +5148,7 @@ int populateRPCTransactionObject(uint256 txid, Object *txobj, string filterAddre
                     MPTxTypeInt = mp_obj.getType();
                     senderAddress = mp_obj.getSender();
                     refAddress = mp_obj.getReceiver();
-                    if (NULL != filterAddress) if ((senderAddress != filterAddress) && (refAddress != filterAddress)) return -1; // return negative rc if filtering & no match
+                    if (!filterAddress.empty()) if ((senderAddress != filterAddress) && (refAddress != filterAddress)) return -1; // return negative rc if filtering & no match
                     isMPTx = true;
                     nFee = mp_obj.getFeePaid();
                     int tmpblock=0;
@@ -5293,7 +5293,10 @@ int populateRPCTransactionObject(uint256 txid, Object *txobj, string filterAddre
         txobj->push_back(Pair("blocktime", blockTime));
         txobj->push_back(Pair("type", MPTxType));
         txobj->push_back(Pair("propertyid", propertyId));
-        if ((MSC_TYPE_CREATE_PROPERTY_VARIABLE == MPTxTypeInt) || (MSC_TYPE_CREATE_PROPERTY_FIXED == MPTxTypeInt)) txobj->push_back(Pair("propertyname", propertyName));
+        if ((MSC_TYPE_CREATE_PROPERTY_VARIABLE == MPTxTypeInt) || (MSC_TYPE_CREATE_PROPERTY_FIXED == MPTxTypeInt) || (MSC_TYPE_CREATE_PROPERTY_MANUAL == MPTxTypeInt))
+        {
+            txobj->push_back(Pair("propertyname", propertyName));
+        }
         txobj->push_back(Pair("divisible", divisible));
         if (divisible)
         {
@@ -5417,16 +5420,16 @@ Value listtransactions_MP(const Array& params, bool fHelp)
     }
 
     int64_t nCount = 10;
-    if (params.size() > 0) nCount = params[1].get_int64();
+    if (params.size() > 1) nCount = params[1].get_int64();
     if (nCount < 0) throw JSONRPCError(RPC_INVALID_PARAMETER, "Negative count");
     int64_t nFrom = 0;
-    if (params.size() > 1) nFrom = params[2].get_int64();
+    if (params.size() > 2) nFrom = params[2].get_int64();
     if (nFrom < 0) throw JSONRPCError(RPC_INVALID_PARAMETER, "Negative from");
     int64_t nStartBlock = 0;
-    if (params.size() > 2) nStartBlock = params[3].get_int64();
+    if (params.size() > 3) nStartBlock = params[3].get_int64();
     if (nStartBlock < 0) throw JSONRPCError(RPC_INVALID_PARAMETER, "Negative start block");
     int64_t nEndBlock = 999999;
-    if (params.size() > 3) nEndBlock = params[4].get_int64();
+    if (params.size() > 4) nEndBlock = params[4].get_int64();
     if (nEndBlock < 0) throw JSONRPCError(RPC_INVALID_PARAMETER, "Negative end block");
 
     Array response; //prep an array to hold our output
