@@ -252,7 +252,7 @@ char *mastercore::c_strPropertyType(int i)
   return (char *) "*** property type error ***";
 }
 
-bool mastercore::isBigEndian()
+bool isBigEndian()
 {
   union
   {

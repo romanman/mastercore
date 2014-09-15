@@ -1126,6 +1126,8 @@ int mastercore_save_state( CBlockIndex const *pBlockIndex );
 
 uint64_t rounduint64(double d);
 
+bool isBigEndian(void);
+
 void swapByteOrder16(unsigned short& us);
 void swapByteOrder32(unsigned int& ui);
 void swapByteOrder64(uint64_t& ull);
@@ -1146,8 +1148,6 @@ extern AcceptMap my_accepts;
 
 extern CrowdMap my_crowds;
 extern MetaDExMap metadex;
-
-bool isBigEndian(void);
 
 string strMPCurrency(unsigned int i);
 
