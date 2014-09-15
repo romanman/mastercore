@@ -282,3 +282,9 @@ int CMPTransaction::step3_sp_variable(const char *p)
   return 0;
 }
 
+void CMPTransaction::printInfo(FILE *fp)
+{
+  fprintf(fp, "BLOCK: %d txid: %s, Block Time: %s\n", block, txid.GetHex().c_str(), DateTimeStrFormat("%Y-%m-%d %H:%M:%S", blockTime).c_str());
+  fprintf(fp, "sender: %s\n", sender.c_str());
+}
+

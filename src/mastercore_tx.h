@@ -75,6 +75,8 @@ public:
 
   string getSPName() const { return string(name); }
 
+  void printInfo(FILE *fp);
+
   void SetNull()
   {
     currency = 0;

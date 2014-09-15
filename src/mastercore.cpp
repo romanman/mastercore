@@ -777,7 +777,7 @@ void eraseMaxedCrowdsale(const string &address, uint64_t blockTime, int block)
 
 unsigned int eraseExpiredCrowdsale(CBlockIndex const * pBlockIndex)
 {
-  const int64_t blockTime = pBlockIndex->GetBlockTime();
+const int64_t blockTime = pBlockIndex->GetBlockTime();
 unsigned int how_many_erased = 0;
 CrowdMap::iterator my_it = my_crowds.begin();
 
@@ -3687,7 +3687,7 @@ int step_rc;
 
       if (fp)
       {
-        // TODO: write info line into the file, timestamp, block #, txid etc.........
+        printInfo(fp);
       }
       else
       {
