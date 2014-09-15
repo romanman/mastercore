@@ -109,15 +109,15 @@ bool bRet = (now > pkt_size);
     return bRet;
 }
 
- // extract Smart Property data
- // RETURNS: the pointer to the next piece to be parsed
- // ERROR is returns NULL and/or sets the error_code
- const char *CMPTransaction::step2_SmartProperty(int &error_code)
- {
- const char *p = 11 + (char *)&pkt;
- std::vector<std::string>spstr;
- unsigned int i;
- unsigned int prop_id;
+// extract Smart Property data
+// RETURNS: the pointer to the next piece to be parsed
+// ERROR is returns NULL and/or sets the error_code
+const char *CMPTransaction::step2_SmartProperty(int &error_code)
+{
+const char *p = 11 + (char *)&pkt;
+std::vector<std::string>spstr;
+unsigned int i;
+unsigned int prop_id;
 
   error_code = 0;
 
@@ -191,10 +191,10 @@ bool bRet = (now > pkt_size);
   }
 
   return p;
- }
+}
 
- int CMPTransaction::step3_sp_fixed(const char *p)
- {
+int CMPTransaction::step3_sp_fixed(const char *p)
+{
   if (!p) return (PKT_ERROR_SP -1);
 
   memcpy(&nValue, p, 8);
@@ -224,10 +224,10 @@ bool bRet = (now > pkt_size);
   if (isOverrun(p, __LINE__)) return (PKT_ERROR_SP -900);
 
   return 0;
- }
+}
 
- int CMPTransaction::step3_sp_variable(const char *p)
- {
+int CMPTransaction::step3_sp_variable(const char *p)
+{
   if (!p) return (PKT_ERROR_SP -1);
 
   memcpy(&currency, p, 4);  // currency desired
@@ -279,5 +279,5 @@ bool bRet = (now > pkt_size);
   if (isOverrun(p, __LINE__)) return (PKT_ERROR_SP -765);
 
   return 0;
- }
+}
 
