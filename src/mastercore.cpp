@@ -5314,6 +5314,7 @@ int populateRPCTransactionObject(uint256 txid, Object *txobj, string filterAddre
         {
             txobj->push_back(Pair("purchasedpropertyid", crowdPropertyId));
             txobj->push_back(Pair("purchasedpropertyname", crowdName));
+            txobj->push_back(Pair("purchasedpropertydivisible", crowdDivisible));
             if (crowdDivisible)
             {
                 txobj->push_back(Pair("purchasedtokens", FormatDivisibleMP(crowdTokens))); //divisible, format w/ bitcoins VFA func
