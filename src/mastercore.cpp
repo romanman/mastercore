@@ -5233,6 +5233,10 @@ int populateRPCTransactionObject(uint256 txid, Object *txobj, string filterAddre
                                 sell_timelimit = temp_offer.getBlockTimeLimit();
                                 sell_subaction = temp_offer.getSubaction();
                                 sell_btcdesired = temp_offer.getBTCDesiredOriginal();
+                                if (3 < sell_subaction) sell_subaction=0; // case where subaction byte >3, to have been allowed must be a v0 sell, flip byte to 0
+                                // for now must mark all v0 sells as new until we can store subaction for v0 sells
+                                if ((0 == sell_subaction) && (0 < amount)) sell_subaction=1; // case where subaction byte=0, must be a v0 sell, infer action from amount
+                                if ((0 == sell_subaction) && (0 == amount)) sell_subaction=3; // case where subaction byte=0, must be a v0 sell, infer action from amount
                             }
                             if ((valid) && (amountNew>0)) amount=amountNew; //amount has been amended, update
                         break;
@@ -5325,10 +5329,9 @@ int populateRPCTransactionObject(uint256 txid, Object *txobj, string filterAddre
         {
             txobj->push_back(Pair("feerequired", ValueFromAmount(sell_minfee)));
             txobj->push_back(Pair("timelimit", sell_timelimit));
-            //for now must mark all v0 sells as new until we find a way to store a subaction for v0 sells
-            if ((1 == sell_subaction) || ((0 == sell_subaction) && (0 < amount))) txobj->push_back(Pair("subaction", "New"));
+            if (1 == sell_subaction) txobj->push_back(Pair("subaction", "New"));
             if (2 == sell_subaction) txobj->push_back(Pair("subaction", "Update"));
-            if ((3 == sell_subaction) || ((0 == sell_subaction) && (0 == amount))) txobj->push_back(Pair("subaction", "Cancel"));
+            if (3 == sell_subaction) txobj->push_back(Pair("subaction", "Cancel"));
             txobj->push_back(Pair("bitcoindesired", ValueFromAmount(sell_btcdesired)));
         }
         txobj->push_back(Pair("valid", valid));
