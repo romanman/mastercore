@@ -1160,6 +1160,8 @@ int64_t strToInt64(std::string strAmount, bool divisible);
 CMPTally *getTally(const string & address);
 
 int64_t getTotalTokens(unsigned int propertyId, int64_t *n_owners_total = NULL);
+
+char *c_strMastercoinType(int i);
 }
 
 #endif

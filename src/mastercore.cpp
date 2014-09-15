@@ -105,9 +105,6 @@ int msc_debug_txdb  = 0;
 int msc_debug_persistence = 0;
 int msc_debug_metadex= 1;
 
-// follow this variable through the code to see how/which Master Protocol transactions get invalidated
-static int InvalidCount_per_spec = 0; // consolidate error messages into a nice log, for now just keep a count
-
 static int disable_Divs = 0;
 
 static int disableLevelDB = 0;
@@ -221,7 +218,7 @@ string str = "*unknown*";
   return str;
 }
 
-char *c_strMastercoinType(int i)
+char *mastercore::c_strMastercoinType(int i)
 {
   switch (i)
   {
@@ -255,14 +252,12 @@ char *c_strPropertyType(int i)
   return (char *) "*** property type error ***";
 }
 
-// TODO: FIXME: only do swaps for little-endian system(s) !
 void swapByteOrder16(unsigned short& us)
 {
     us = (us >> 8) |
          (us << 8);
 }
 
-// TODO: FIXME: only do swaps for little-endian system(s) !
 void swapByteOrder32(unsigned int& ui)
 {
     ui = (ui >> 24) |
@@ -271,7 +266,6 @@ void swapByteOrder32(unsigned int& ui)
          (ui << 24);
 }
 
-// TODO: FIXME: only do swaps for little-endian system(s) !
 void swapByteOrder64(uint64_t& ull)
 {
     ull = (ull >> 56) |
@@ -382,7 +376,7 @@ MetaDExMap mastercore::metadex;
 
 CMPMetaDEx *getMetaDEx(const string &sender_addr, unsigned int curr)
 {
-  if (msc_debug_metadex) fprintf(mp_fp, "%s(), line %d, file: %s\n", __FUNCTION__, __LINE__, __FILE__);
+  if (msc_debug_metadex) fprintf(mp_fp, "%s()\n", __FUNCTION__);
 
 const string combo = STR_SELLOFFER_ADDR_CURR_COMBO(sender_addr);
 map<string, CMPMetaDEx>::iterator it = metadex.find(combo);
@@ -722,7 +716,7 @@ uint64_t before, after;
 // check to see if such a sell offer exists
 bool DEx_offerExists(const string &seller_addr, unsigned int curr)
 {
-  if (msc_debug_dex) fprintf(mp_fp, "%s(), line %d, file: %s\n", __FUNCTION__, __LINE__, __FILE__);
+  if (msc_debug_dex) fprintf(mp_fp, "%s()\n", __FUNCTION__);
 const string combo = STR_SELLOFFER_ADDR_CURR_COMBO(seller_addr);
 OfferMap::iterator my_it = my_offers.find(combo);
 
@@ -757,7 +751,7 @@ AcceptMap::iterator my_it = my_accepts.find(combo);
 // returns 0 if everything is OK
 int DEx_offerCreate(string seller_addr, unsigned int curr, uint64_t nValue, int block, uint64_t amount_desired, uint64_t fee, unsigned char btl, const uint256 &txid, uint64_t *nAmended = NULL) 
 {
-  if (msc_debug_dex) fprintf(mp_fp, "%s(), line %d, file: %s\n", __FUNCTION__, __LINE__, __FILE__);
+  if (msc_debug_dex) fprintf(mp_fp, "%s()\n", __FUNCTION__);
 int rc = DEX_ERROR_SELLOFFER;
 
   // sanity check our params are OK
@@ -768,7 +762,7 @@ int rc = DEX_ERROR_SELLOFFER;
   const string combo = STR_SELLOFFER_ADDR_CURR_COMBO(seller_addr);
 
   if (msc_debug_dex)
-   fprintf(mp_fp, "%s(%s|%s), nValue=%lu), line %d, file: %s\n", __FUNCTION__, seller_addr.c_str(), combo.c_str(), nValue, __LINE__, __FILE__);
+   fprintf(mp_fp, "%s(%s|%s), nValue=%lu)\n", __FUNCTION__, seller_addr.c_str(), combo.c_str(), nValue);
 
   const uint64_t balanceReallyAvailable = getMPbalance(seller_addr, curr, MONEY);
 
@@ -802,7 +796,7 @@ int rc = DEX_ERROR_SELLOFFER;
 // returns 0 if everything is OK
 int DEx_offerDestroy(const string &seller_addr, unsigned int curr)
 {
-  if (msc_debug_dex) fprintf(mp_fp, "%s(), line %d, file: %s\n", __FUNCTION__, __LINE__, __FILE__);
+  if (msc_debug_dex) fprintf(mp_fp, "%s()\n", __FUNCTION__);
 const uint64_t amount = getMPbalance(seller_addr, curr, SELLOFFER_RESERVE);
 
   if (!DEx_offerExists(seller_addr, curr)) return (DEX_ERROR_SELLOFFER -11); // offer does not exist
@@ -870,7 +864,6 @@ uint64_t nActualAmount = getMPbalance(seller, curr, SELLOFFER_RESERVE);
   if (fee_paid < offer.getMinFee())
   {
     fprintf(mp_fp, "ERROR: fee too small -- the ACCEPT is rejected! (%lu is smaller than %lu)\n", fee_paid, offer.getMinFee());
-    ++InvalidCount_per_spec;
     return DEX_ERROR_ACCEPT -105;
   }
 
@@ -993,7 +986,7 @@ p_accept = DEx_getAccept(seller, curr, buyer);
     p_accept = DEx_getAccept(seller, curr, buyer); 
   }
 
-  if (msc_debug_dex) fprintf(mp_fp, "%s(%s, %s), line %d, file: %s\n", __FUNCTION__, seller.c_str(), buyer.c_str(), __LINE__, __FILE__);
+  if (msc_debug_dex) fprintf(mp_fp, "%s(%s, %s)\n", __FUNCTION__, seller.c_str(), buyer.c_str());
 
   if (!p_accept) return (DEX_ERROR_PAYMENT -1);  // there must be an active Accept for this payment
 
@@ -1546,1253 +1539,6 @@ unsigned short version_TopAllowed;
 
   return bAllowed && !bBlackHole;
 }
-
-// The class responsible for tx interpreting/parsing.
-//
-// It invokes other classes & methods: offers, accepts, tallies (balances).
-class CMPTransaction
-{
-private:
-  string sender;
-  string receiver;
-  uint256 txid;
-  int block;
-  unsigned int tx_idx;  // tx # within the block, 0-based
-  int pkt_size;
-  unsigned char pkt[1 + MAX_PACKETS * PACKET_SIZE];
-  uint64_t nValue;
-  int multi;  // Class A = 0, Class B = 1
-  uint64_t tx_fee_paid;
-  unsigned int type;
-  unsigned int currency;
-  unsigned short version; // = MP_TX_PKT_V0;
-  uint64_t nNewValue;
-  int64_t blockTime;  // internally nTime is still an "unsigned int"
-
-// SP additions, perhaps a new class or a union is needed
-  unsigned char ecosystem;
-  unsigned short prop_type;
-  unsigned int prev_prop_id;
-
-  char category[SP_STRING_FIELD_LEN];
-  char subcategory[SP_STRING_FIELD_LEN];
-  char name[SP_STRING_FIELD_LEN];
-  char url[SP_STRING_FIELD_LEN];
-  char data[SP_STRING_FIELD_LEN];
-
-  uint64_t deadline;
-  unsigned char early_bird;
-  unsigned char percentage;
-
-  // METADEX additions
-  unsigned int desired_currency;
-  uint64_t desired_value;
-
-  class SendToOwners_compare
-  {
-  public:
-
-    bool operator()(pair<long, string> p1, pair<long, string> p2) const
-    {
-      if (p1.first == p2.first) return p1.second > p2.second; // reverse check
-      else return p1.first < p2.first;
-    }
-  };
-
-  enum ActionTypes { INVALID = 0, NEW = 1, UPDATE = 2, CANCEL = 3 };
-
-public:
-//  mutable CCriticalSection cs_msc;  // TODO: need to refactor first...
-
-  unsigned int getType() const { return type; }
-  const string getTypeString() const { return string(c_strMastercoinType(getType())); }
-  unsigned int getCurrency() const { return currency; }
-  unsigned short getVersion() const { return version; }
-  unsigned short getPropertyType() const { return prop_type; }
-  uint64_t getFeePaid() const { return tx_fee_paid; }
-
-  const string & getSender() const { return sender; }
-  const string & getReceiver() const { return receiver; }
-
-  uint64_t getAmount() const { return nValue; }
-  uint64_t getNewAmount() const { return nNewValue; }
-
-  string getSPName() const { return string(name); }
-
-  void SetNull()
-  {
-    currency = 0;
-    type = 0;
-    txid = 0;
-    tx_idx = 0;  // tx # within the block, 0-based
-    nValue = 0;
-    nNewValue = 0;
-    tx_fee_paid = 0;
-    block = -1;
-    pkt_size = 0;
-    sender.erase();
-    receiver.erase();
-
-    blockTime = 0;
-
-    ecosystem = 0;
-    prop_type = 0;
-    prev_prop_id = 0;
-
-    memset(&pkt, 0, sizeof(pkt));
-
-    memset(&category, 0, sizeof(category));
-    memset(&subcategory, 0, sizeof(subcategory));
-    memset(&name, 0, sizeof(name));
-    memset(&url, 0, sizeof(url));
-    memset(&data, 0, sizeof(data));
-  }
-
-  CMPTransaction()
-  {
-    SetNull();
-  }
-
-  int logicMath_SimpleSend()
-  {
-  int rc = PKT_ERROR_SEND -1000;
-
-      if (!isTransactionTypeAllowed(block, currency, type, version)) return (PKT_ERROR_SEND -22);
-
-      if (sender.empty()) ++InvalidCount_per_spec;
-      // special case: if can't find the receiver -- assume sending to itself !
-      // may also be true for BTC payments........
-      // TODO: think about this..........
-      if (receiver.empty())
-      {
-        receiver = sender;
-      }
-      if (receiver.empty()) ++InvalidCount_per_spec;
-
-      // insufficient funds check & return
-      if (!update_tally_map(sender, currency, - nValue, MONEY))
-      {
-        return (PKT_ERROR -111);
-      }
-
-      update_tally_map(receiver, currency, nValue, MONEY);
-
-      // is there a crowdsale running from this recepient ?
-      {
-      CMPCrowd *crowd;
-
-        crowd = getCrowd(receiver);
-
-        if (crowd && (crowd->getCurrDes() == currency) )
-        {
-          CMPSPInfo::Entry sp;
-          bool spFound = _my_sps->getSP(crowd->getPropertyId(), sp);
-
-          fprintf(mp_fp, "INVESTMENT SEND to Crowdsale Issuer: %s\n", receiver.c_str());
-          
-          if (spFound)
-          {
-            //init this struct
-            std::pair <uint64_t,uint64_t> tokens;
-            //pass this in by reference to determine if max_tokens has been reached
-            bool close_crowdsale = false; 
-            //get txid
-            string sp_txid =  sp.txid.GetHex().c_str();
-
-            //Units going into the calculateFundraiser function must
-            //match the unit of the fundraiser's property_type.
-            //By default this means Satoshis in and satoshis out.
-            //In the condition that your fundraiser is Divisible,
-            //but you are accepting indivisible tokens, you must
-            //account for 1.0 Div != 1 Indiv but actually 1.0 Div == 100000000 Indiv.
-            //The unit must be shifted or your values will be incorrect,
-            //that is what we check for below.
-            if ( !(isPropertyDivisible(currency)) ) {
-              nValue = nValue * 1e8;
-            }
-
-            //fprintf(mp_fp, "\nValues going into calculateFundraiser(): hexid %s nValue %lu earlyBird %d deadline %lu blockTime %ld numProps %lu issuerPerc %d \n", txid.GetHex().c_str(), nValue, sp.early_bird, sp.deadline, (uint64_t) blockTime, sp.num_tokens, sp.percentage);
-
-            // calc tokens per this fundraise
-            calculateFundraiser(sp.prop_type,         //u short
-                                nValue,               // u int 64
-                                sp.early_bird,        // u char
-                                sp.deadline,          // u int 64
-                                (uint64_t) blockTime, // int 64
-                                sp.num_tokens,      // u int 64
-                                sp.percentage,        // u char
-                                getTotalTokens(crowd->getPropertyId()),
-                                tokens,
-                                close_crowdsale);
-
-            //fprintf(mp_fp,"\n before incrementing global tokens user: %ld issuer: %ld\n", crowd->getUserCreated(), crowd->getIssuerCreated());
-            
-            //getIssuerCreated() is passed into calcluateFractional() at close
-            //getUserCreated() is a convenient way to get user created during a crowdsale
-            crowd->incTokensUserCreated(tokens.first);
-            crowd->incTokensIssuerCreated(tokens.second);
-            
-            //fprintf(mp_fp,"\n after incrementing global tokens user: %ld issuer: %ld\n", crowd->getUserCreated(), crowd->getIssuerCreated());
-            
-            //init data to pass to txFundraiserData
-            uint64_t txdata[] = { (uint64_t) nValue, (uint64_t) blockTime, (uint64_t) tokens.first, (uint64_t) tokens.second };
-            
-            std::vector<uint64_t> txDataVec(txdata, txdata + sizeof(txdata)/sizeof(txdata[0]) );
-
-            //insert data
-            crowd->insertDatabase(txid.GetHex().c_str(), txDataVec  );
-
-            //fprintf(mp_fp,"\nValues coming out of calculateFundraiser(): hex %s: Tokens created, Tokens for issuer: %ld %ld\n",txid.GetHex().c_str(), tokens.first, tokens.second);
-
-            //update sender/rec
-            update_tally_map(sender, crowd->getPropertyId(), tokens.first, MONEY);
-            update_tally_map(receiver, crowd->getPropertyId(), tokens.second, MONEY);
-
-            // close crowdsale if we hit MAX_TOKENS
-            if( close_crowdsale ) {
-              eraseMaxedCrowdsale(receiver, blockTime, block);
-            }
-          }
-        }
-      }
-
-      rc = 0;
-
-    return rc;
-  }
-
-  int logicMath_TradeOffer(CMPOffer *obj_o)
-  {
-  int rc = PKT_ERROR_TRADEOFFER;
-  uint64_t amount_desired, min_fee;
-  unsigned char blocktimelimit, subaction = 0;
-  static const char * const subaction_name[] = { "empty", "new", "update", "cancel" };
-
-      if ((MASTERCOIN_CURRENCY_TMSC != currency) && (MASTERCOIN_CURRENCY_MSC != currency))
-      {
-        fprintf(mp_fp, "No smart properties allowed on the DeX...\n");
-        return PKT_ERROR_TRADEOFFER -72;
-      }
-
-      // block height checks, for instance DEX is only available on MSC starting with block 290630
-      if (!isTransactionTypeAllowed(block, currency, type, version)) return -88888;
-
-      memcpy(&amount_desired, &pkt[16], 8);
-      memcpy(&blocktimelimit, &pkt[24], 1);
-      memcpy(&min_fee, &pkt[25], 8);
-      memcpy(&subaction, &pkt[33], 1);
-
-      swapByteOrder64(amount_desired);
-      swapByteOrder64(min_fee);
-
-    fprintf(mp_fp, "\t  amount desired: %lu.%08lu\n", amount_desired / COIN, amount_desired % COIN);
-    fprintf(mp_fp, "\tblock time limit: %u\n", blocktimelimit);
-    fprintf(mp_fp, "\t         min fee: %lu.%08lu\n", min_fee / COIN, min_fee % COIN);
-    fprintf(mp_fp, "\t      sub-action: %u (%s)\n", subaction, subaction < sizeof(subaction_name)/sizeof(subaction_name[0]) ? subaction_name[subaction] : "");
-
-      if (obj_o)
-      {
-        obj_o->Set(amount_desired, min_fee, blocktimelimit, subaction);
-        return PKT_RETURN_OFFER;
-      }
-
-      // figure out which Action this is based on amount for sale, version & etc.
-      switch (version)
-      {
-        case MP_TX_PKT_V0:
-          if (0 != nValue)
-          {
-            if (!DEx_offerExists(sender, currency))
-            {
-              rc = DEx_offerCreate(sender, currency, nValue, block, amount_desired, min_fee, blocktimelimit, txid, &nNewValue);
-            }
-            else
-            {
-              rc = DEx_offerUpdate(sender, currency, nValue, block, amount_desired, min_fee, blocktimelimit, txid, &nNewValue);
-            }
-          }
-          else
-          // what happens if nValue is 0 for V0 ?  ANSWER: check if exists and it does -- cancel, otherwise invalid
-          {
-            if (DEx_offerExists(sender, currency))
-            {
-              rc = DEx_offerDestroy(sender, currency);
-            }
-          }
-
-          break;
-
-        case MP_TX_PKT_V1:
-        {
-          if (DEx_offerExists(sender, currency))
-          {
-            if ((CANCEL != subaction) && (UPDATE != subaction))
-            {
-              fprintf(mp_fp, "%s() INVALID SELL OFFER -- ONE ALREADY EXISTS, line %d, file: %s\n", __FUNCTION__, __LINE__, __FILE__);
-              ++InvalidCount_per_spec;
-              rc = PKT_ERROR_TRADEOFFER -11;
-              break;
-            }
-          }
-          else
-          {
-            // Offer does not exist
-            if ((NEW != subaction))
-            {
-              fprintf(mp_fp, "%s() INVALID SELL OFFER -- UPDATE OR CANCEL ACTION WHEN NONE IS POSSIBLE\n", __FUNCTION__);
-              ++InvalidCount_per_spec;
-              rc = PKT_ERROR_TRADEOFFER -12;
-              break;
-            }
-          }
- 
-          switch (subaction)
-          {
-            case NEW:
-              rc = DEx_offerCreate(sender, currency, nValue, block, amount_desired, min_fee, blocktimelimit, txid, &nNewValue);
-              break;
-
-            case UPDATE:
-              rc = DEx_offerUpdate(sender, currency, nValue, block, amount_desired, min_fee, blocktimelimit, txid, &nNewValue);
-              break;
-
-            case CANCEL:
-              rc = DEx_offerDestroy(sender, currency);
-              break;
-
-            default:
-              ++InvalidCount_per_spec;
-              rc = (PKT_ERROR -999);
-              break;
-          }
-
-          break;
-        }
-
-        default:
-          rc = (PKT_ERROR -500);  // neither V0 nor V1
-          break;
-      };
-
-    return rc;
-  }
-
-  int logicMath_AcceptOffer_BTC()
-  {
-  int rc = DEX_ERROR_ACCEPT;
-
-    // the min fee spec requirement is checked in the following function
-    rc = DEx_acceptCreate(sender, receiver, currency, nValue, block, tx_fee_paid, &nNewValue);
-
-    return rc;
-  }
-
-  int logicMath_SendToOwners(FILE *fp = NULL)
-  {
-  int rc = PKT_ERROR_STO -1000;
-
-      if (!isTransactionTypeAllowed(block, currency, type, version)) return (PKT_ERROR_STO -888);
-
-      // totalTokens will be 0 for non-existing currency
-      int64_t totalTokens = getTotalTokens(currency);
-      bool bDivisible = isPropertyDivisible(currency);
-
-      if (!bDivisible)fprintf(mp_fp, "\t    Total Tokens: %lu\n", totalTokens);
-      else fprintf(mp_fp, "\t    Total Tokens: %lu.%08lu\n", totalTokens/COIN, totalTokens%COIN);
-
-      if (0 >= totalTokens)
-      {
-        return (PKT_ERROR_STO -2);
-      }
-
-      // does the sender have enough of the property he's trying to "Send To Owners" ?
-      if (getMPbalance(sender, currency, MONEY) < nValue)
-      {
-        return (PKT_ERROR_STO -3);
-      }
-
-      totalTokens = 0;
-      int64_t n_owners = 0;
-
-      typedef std::set<pair<int64_t, string>, SendToOwners_compare> OwnerAddrType;
-      OwnerAddrType OwnerAddrSet;
-
-      {
-        for(map<string, CMPTally>::reverse_iterator my_it = mp_tally_map.rbegin(); my_it != mp_tally_map.rend(); ++my_it)
-        {
-          const string address = (my_it->first).c_str();
-
-          // do not count the sender
-          if (address == sender) continue;
-
-          int64_t tokens = 0;
-
-          tokens += getMPbalance(address, currency, MONEY);
-          tokens += getMPbalance(address, currency, SELLOFFER_RESERVE);
-          tokens += getMPbalance(address, currency, ACCEPT_RESERVE);
-
-          if (tokens)
-          {
-            OwnerAddrSet.insert(make_pair(tokens, address));
-            totalTokens += tokens;
-          }
-        }
-      }
-
-      if (!bDivisible)fprintf(mp_fp, "  Excluding Sender: %lu\n", totalTokens);
-      else fprintf(mp_fp, "  Excluding Sender: %lu.%08lu\n", totalTokens/COIN, totalTokens%COIN);
-
-      // loop #1 -- count the actual number of owners to receive the payment
-      for(OwnerAddrType::reverse_iterator my_it = OwnerAddrSet.rbegin(); my_it != OwnerAddrSet.rend(); ++my_it)
-      {
-        n_owners++;
-
-        // record the detailed info as needed
-        if (fp) fprintf(fp, "#%ld: %lu = %s\n", n_owners, (my_it->first), (my_it->second).c_str());
-      }
-
-      fprintf(mp_fp, "\t          Owners: %lu\n", n_owners);
-
-      // make sure we found some owners
-      if (0 >= n_owners)
-      {
-        return (PKT_ERROR_STO -4);
-      }
-
-      uint64_t nXferFee = TRANSFER_FEE_PER_OWNER * n_owners;
-
-      // determine which currency the fee will be paid in
-      const unsigned int feeCurrency = isTestEcosystemProperty(currency) ? MASTERCOIN_CURRENCY_TMSC : MASTERCOIN_CURRENCY_MSC;
-
-      fprintf(mp_fp, "\t    Transfer fee: %lu.%08lu %s\n", nXferFee/COIN, nXferFee%COIN, strMPCurrency(feeCurrency).c_str());
-
-      // enough coins to pay the fee?
-      if (getMPbalance(sender, feeCurrency, MONEY) < nXferFee)
-      {
-        return (PKT_ERROR_STO -5);
-      }
-
-      // special case check, only if distributing MSC or TMSC -- the currency the fee will be paid in
-      if (feeCurrency == currency)
-      {
-        if (getMPbalance(sender, feeCurrency, MONEY) < (nValue + nXferFee))
-        {
-          return (PKT_ERROR_STO -55);
-        }
-      }
-
-      // burn MSC or TMSC here: take the transfer fee away from the sender
-      if (!update_tally_map(sender, feeCurrency, - nXferFee, MONEY))
-      {
-        // impossible to reach this, the check was done just before (the check is not necessary since update_tally_map checks balances too)
-        return (PKT_ERROR_STO -500);
-      }
-
-      // loop #2
-      // split up what was taken and distribute between all holders
-      uint64_t owns, should_receive, will_really_receive, sent_so_far = 0;
-      double percentage, piece;
-      rc = 0; // almost good, the for-loop will set the error code
-      for(OwnerAddrType::reverse_iterator my_it = OwnerAddrSet.rbegin(); my_it != OwnerAddrSet.rend(); ++my_it)
-      {
-      const string address = my_it->second;
-
-        owns = my_it->first;
-        percentage = (double) owns / (double) totalTokens;
-        piece = percentage * nValue;
-        should_receive = ceil(piece);
-
-        // ensure that much is still available
-        if ((nValue - sent_so_far) < should_receive)
-        {
-          will_really_receive = nValue - sent_so_far;
-        }
-        else
-        {
-          will_really_receive = should_receive;
-        }
-
-        sent_so_far += will_really_receive;
-
-        if (msc_debug_sto)
-         fprintf(mp_fp, "%14lu = %s, perc= %20.10lf, piece= %20.10lf, should_get= %14lu, will_really_get= %14lu, sent_so_far= %14lu\n",
-          owns, address.c_str(), percentage, piece, should_receive, will_really_receive, sent_so_far);
-
-        if (!update_tally_map(sender, currency, - will_really_receive, MONEY))
-        {
-          return (PKT_ERROR_STO -1);
-        }
-
-        update_tally_map(address, currency, will_really_receive, MONEY);
-
-        if (sent_so_far >= nValue)
-        {
-          fprintf(mp_fp, "SendToOwners: DONE HERE : those who could get paid got paid, SOME DID NOT, but that's ok\n");
-          break; // done here, everybody who could get paid got paid
-        }
-      }
-
-      // sent_so_far must equal nValue here
-      if (sent_so_far != nValue)
-      {
-        fprintf(mp_fp, "send_so_far= %14lu, nValue= %14lu, n_owners= %lu\n",
-         sent_so_far, nValue, n_owners);
-
-        // rc = ???
-      }
-
-    return rc;
-  }
-
-  int logicMath_MetaDEx()
-  {
-  int rc = PKT_ERROR_METADEX -100;
-  unsigned char action = 0;
-
-    if (!isTransactionTypeAllowed(block, currency, type, version)) return (PKT_ERROR_METADEX -888);
-
-    memcpy(&desired_currency, &pkt[16], 4);
-    swapByteOrder32(desired_currency);
-
-    memcpy(&desired_value, &pkt[20], 8);
-    swapByteOrder64(desired_value);
-
-    fprintf(mp_fp, "\tdesired currency: %u (%s)\n", desired_currency, strMPCurrency(desired_currency).c_str());
-    fprintf(mp_fp, "\t   desired value: %lu.%08lu\n", desired_value/COIN, desired_value%COIN);
-
-    memcpy(&action, &pkt[28], 1);
-
-    fprintf(mp_fp, "\t          action: %u\n", action);
-
-    nNewValue = getMPbalance(sender, currency, MONEY);
-
-    // here we are copying nValue into nNewValue to be stored into our leveldb later: MP_txlist
-    if (nNewValue > nValue) nNewValue = nValue;
-
-    CMPMetaDEx *p_metadex = getMetaDEx(sender, currency);
-
-    // do checks that are not application for the Cancel action
-    if (CANCEL != action)
-    {
-      if (!isTransactionTypeAllowed(block, desired_currency, type, version)) return (PKT_ERROR_METADEX -889);
-
-      // ensure no cross-over of currencies from Test Eco to normal
-      if (isTestEcosystemProperty(currency) != isTestEcosystemProperty(desired_currency)) return (PKT_ERROR_METADEX -4);
-
-      // ensure the desired currency exists in our universe
-      if (!_my_sps->hasSP(desired_currency)) return (PKT_ERROR_METADEX -30);
-
-      if (!nValue) return (PKT_ERROR_METADEX -11);
-      if (!desired_value) return (PKT_ERROR_METADEX -12);
-    }
-
-    // TODO: use the nNewValue as the amount the seller/sender actually has to trade with
-    // ...
-
-    switch (action)
-    {
-      case NEW:
-        // Does the sender have any money?
-        if (0 >= nNewValue) return (PKT_ERROR_METADEX -3);
-
-        // An address cannot create a new offer while that address has an active sell offer with the same currencies in the same roles.
-        if (p_metadex) return (PKT_ERROR_METADEX -10);
-
-        // rough logic now: match the trade vs existing offers -- if not fully satisfied -- add to the metadex map
-        // ...
-
-        // TODO: more stuff like the old offer MONEY into RESERVE; then add offer to map
-
-        rc = MetaDEx_Create(sender, currency, nNewValue, block, desired_currency, desired_value, txid, tx_idx);
-
-        // ...
-
-        break;
-
-      case UPDATE:
-        if (!p_metadex) return (PKT_ERROR_METADEX -105);  // not found, nothing to update
-
-        // TODO: check if the sender has enough money... for an update
-
-        rc = MetaDEx_Update(sender, currency, nNewValue, block, desired_currency, desired_value, txid, tx_idx);
-
-        break;
-
-      case CANCEL:
-        if (!p_metadex) return (PKT_ERROR_METADEX -111);  // not found, nothing to cancel
-
-        rc = MetaDEx_Destroy(sender, currency);
-
-        break;
-
-      default: return (PKT_ERROR_METADEX -999);
-    }
-
-    return rc;
-  }
-
-  int logicMath_GrantTokens() {
-    int rc = PKT_ERROR_TOKENS - 1000;
-
-    if (!isTransactionTypeAllowed(block, currency, type, version)) {
-      fprintf(mp_fp, "\tRejecting Grant: Transaction type not yet allowed\n");
-      return (PKT_ERROR_TOKENS - 22);
-    }
-
-    if (sender.empty()) {
-      ++InvalidCount_per_spec;
-      fprintf(mp_fp, "\tRejecting Grant: Sender is empty\n");
-      return (PKT_ERROR_TOKENS - 23);
-    }
-
-    // manual issuance check
-    if (false == _my_sps->hasSP(currency)) {
-      fprintf(mp_fp, "\tRejecting Grant: SP id:%d does not exist\n", currency);
-      return (PKT_ERROR_TOKENS - 24);
-    }
-
-    CMPSPInfo::Entry sp;
-    _my_sps->getSP(currency, sp);
-
-    if (false == sp.manual) {
-      fprintf(mp_fp, "\tRejecting Grant: SP id:%d was not issued with a TX 54\n", currency);
-      return (PKT_ERROR_TOKENS - 25);
-    }
-
-
-    // issuer check
-    if (false == boost::iequals(sender, sp.issuer)) {
-      fprintf(mp_fp, "\tRejecting Grant: %s is not the issuer of SP id:%d\n", sender.c_str(), currency);
-      return (PKT_ERROR_TOKENS - 26);
-    }
-
-    // overflow tokens check
-    if (MAX_INT_8_BYTES - sp.num_tokens < nValue) {
-      char prettyTokens[256];
-      if (sp.isDivisible()) {
-        snprintf(prettyTokens, 256, "%lu.%08lu", nValue / COIN, nValue % COIN);
-      } else {
-        snprintf(prettyTokens, 256, "%lu", nValue);
-      }
-      fprintf(mp_fp, "\tRejecting Grant: granting %s tokens on SP id:%d would overflow the maximum limit for tokens in a smart property\n", prettyTokens, currency);
-      return (PKT_ERROR_TOKENS - 27);
-    }
-
-    // grant the tokens
-    update_tally_map(sender, currency, nValue, MONEY);
-
-    // call the send logic
-    rc = logicMath_SimpleSend();
-
-    // record this grant
-    std::vector<uint64_t> dataPt;
-    dataPt.push_back(nValue);
-    dataPt.push_back(0);
-    string txidStr = txid.ToString();
-    sp.historicalData.insert(std::make_pair(txidStr, dataPt));
-    sp.update_block = chainActive[block]->GetBlockHash();
-    _my_sps->updateSP(currency, sp);
-
-    return rc;
-  }
-
-  int logicMath_RevokeTokens() {
-    int rc = PKT_ERROR_TOKENS - 1000;
-
-    if (!isTransactionTypeAllowed(block, currency, type, version)) {
-      fprintf(mp_fp, "\tRejecting Revoke: Transaction type not yet allowed\n");
-      return (PKT_ERROR_TOKENS - 22);
-    }
-
-    if (sender.empty()) {
-      ++InvalidCount_per_spec;
-      fprintf(mp_fp, "\tRejecting Revoke: Sender is empty\n");
-      return (PKT_ERROR_TOKENS - 23);
-    }
-
-    // manual issuance check
-    if (false == _my_sps->hasSP(currency)) {
-      fprintf(mp_fp, "\tRejecting Revoke: SP id:%d does not exist\n", currency);
-      return (PKT_ERROR_TOKENS - 24);
-    }
-
-    CMPSPInfo::Entry sp;
-    _my_sps->getSP(currency, sp);
-
-    if (false == sp.manual) {
-      fprintf(mp_fp, "\tRejecting Revoke: SP id:%d was not issued with a TX 54\n", currency);
-      return (PKT_ERROR_TOKENS - 25);
-    }
-
-
-    // issuer check
-    if (false == boost::iequals(sender, sp.issuer)) {
-      fprintf(mp_fp, "\tRejecting Revoke: %s is not the issuer of SP id:%d\n", sender.c_str(), currency);
-      return (PKT_ERROR_TOKENS - 26);
-    }
-
-    // insufficient funds check and revoke
-    if (false == update_tally_map(sender, currency, -nValue, MONEY)) {
-      fprintf(mp_fp, "\tRejecting Revoke: insufficient funds\n");
-      return (PKT_ERROR_TOKENS - 111);
-    }
-
-    // record this revoke
-    std::vector<uint64_t> dataPt;
-    dataPt.push_back(0);
-    dataPt.push_back(nValue);
-    string txidStr = txid.ToString();
-    sp.historicalData.insert(std::make_pair(txidStr, dataPt));
-    sp.update_block = chainActive[block]->GetBlockHash();
-    _my_sps->updateSP(currency, sp);
-
-    rc = 0;
-    return rc;
-  }
-
-
- // the 31-byte packet & the packet #
- // int interpretPacket(int blocknow, unsigned char pkt[], int size)
- //
- // RETURNS:  0 if the packet is fully valid
- // RETURNS: <0 if the packet is invalid
- // RETURNS: >0 the only known case today is: return PKT_RETURN_OFFER
- //
- // 
- // the following functions may augment the amount in question (nValue):
- // DEx_offerCreate()
- // DEx_offerUpdate()
- // DEx_acceptCreate()
- // DEx_payment() -- DOES NOT fit nicely into the model, as it currently is NOT a MP TX (not even in leveldb) -- gotta rethink
- //
- // optional: provide the pointer to the CMPOffer object, it will get filled in
- // verify that it does via if (MSC_TYPE_TRADE_OFFER == mp_obj.getType())
- //
- int interpretPacket(CMPOffer *obj_o = NULL)
- {
- int rc = PKT_ERROR;
- int step_rc;
-
-  if (0>step1()) return -98765;
-
-  if ((obj_o) && (MSC_TYPE_TRADE_OFFER != type)) return -777; // can't fill in the Offer object !
-
-  // further processing for complex types
-  // TODO: version may play a role here !
-  switch(type)
-  {
-    case MSC_TYPE_SIMPLE_SEND:
-      step_rc = step2_Value();
-      if (0>step_rc) return step_rc;
-
-      rc = logicMath_SimpleSend();
-      break;
-
-    case MSC_TYPE_TRADE_OFFER:
-      step_rc = step2_Value();
-      if (0>step_rc) return step_rc;
-
-      rc = logicMath_TradeOffer(obj_o);
-      break;
-
-    case MSC_TYPE_ACCEPT_OFFER_BTC:
-      step_rc = step2_Value();
-      if (0>step_rc) return step_rc;
-
-      rc = logicMath_AcceptOffer_BTC();
-      break;
-
-    case MSC_TYPE_CREATE_PROPERTY_FIXED:
-    {
-      const char *p = step2_SmartProperty(step_rc);
-      if (0>step_rc) return step_rc;
-      if (!p) return (PKT_ERROR_SP -11);
-
-      step_rc = step3_sp_fixed(p);
-      if (0>step_rc) return step_rc;
-
-      if (0 == step_rc)
-      {
-        CMPSPInfo::Entry newSP;
-        newSP.issuer = sender;
-        newSP.txid = txid;
-        newSP.prop_type = prop_type;
-        newSP.num_tokens = nValue;
-        newSP.category.assign(category);
-        newSP.subcategory.assign(subcategory);
-        newSP.name.assign(name);
-        newSP.url.assign(url);
-        newSP.data.assign(data);
-        newSP.fixed = true;
-        newSP.creation_block = newSP.update_block = chainActive[block]->GetBlockHash();
-
-        const unsigned int id = _my_sps->putSP(ecosystem, newSP);
-        update_tally_map(sender, id, nValue, MONEY);
-      }
-      rc = 0;
-      break;
-    }
-
-    case MSC_TYPE_CREATE_PROPERTY_VARIABLE:
-    {
-      const char *p = step2_SmartProperty(step_rc);
-      if (0>step_rc) return step_rc;
-      if (!p) return (PKT_ERROR_SP -12);
-
-      step_rc = step3_sp_variable(p);
-      if (0>step_rc) return step_rc;
-
-      // check if one exists for this address already !
-      if (NULL != getCrowd(sender)) return (PKT_ERROR_SP -20);
-
-      // must check that the desired currency exists in our universe
-      if (false == _my_sps->hasSP(currency)) return (PKT_ERROR_SP -30);
-
-      if (0 == step_rc)
-      {
-        CMPSPInfo::Entry newSP;
-        newSP.issuer = sender;
-        newSP.txid = txid;
-        newSP.prop_type = prop_type;
-        newSP.num_tokens = nValue;
-        newSP.category.assign(category);
-        newSP.subcategory.assign(subcategory);
-        newSP.name.assign(name);
-        newSP.url.assign(url);
-        newSP.data.assign(data);
-        newSP.fixed = false;
-        newSP.currency_desired = currency;
-        newSP.deadline = deadline;
-        newSP.early_bird = early_bird;
-        newSP.percentage = percentage;
-        newSP.creation_block = newSP.update_block = chainActive[block]->GetBlockHash();
-
-        const unsigned int id = _my_sps->putSP(ecosystem, newSP);
-        my_crowds.insert(std::make_pair(sender, CMPCrowd(id, nValue, currency, deadline, early_bird, percentage, 0, 0)));
-        fprintf(mp_fp, "\nCREATED CROWDSALE id: %u value: %lu currency: %u\n", id, nValue, currency);  
-      }
-      rc = 0;
-      break;
-    }
-
-    case MSC_TYPE_CLOSE_CROWDSALE:
-    {
-    CrowdMap::iterator it = my_crowds.find(sender);
-
-      if (it != my_crowds.end())
-      {
-        // retrieve the property id from the incoming packet
-        memcpy(&currency, &pkt[4], 4);
-        swapByteOrder32(currency);
-
-        if (msc_debug_sp) fprintf(mp_fp, "%s() trying to ERASE CROWDSALE for propid= %u=%X, line %d, file: %s\n",
-         __FUNCTION__, currency, currency, __LINE__, __FILE__);
-
-        // ensure we are closing the crowdsale which we opened by checking the currency
-        if ((it->second).getPropertyId() != currency)
-        {
-          rc = (PKT_ERROR_SP -606);
-          break;
-        }
-
-        dumpCrowdsaleInfo(it->first, it->second);
-
-        // Begin calculate Fractional 
-
-        CMPCrowd &crowd = it->second;
-        
-        CMPSPInfo::Entry sp;
-        _my_sps->getSP(crowd.getPropertyId(), sp);
-
-        //fprintf(mp_fp, "\nValues going into calculateFractional(): hexid %s earlyBird %d deadline %lu numProps %lu issuerPerc %d, issuerCreated %ld \n", sp.txid.GetHex().c_str(), sp.early_bird, sp.deadline, sp.num_tokens, sp.percentage, crowd.getIssuerCreated());
-
-        double missedTokens = calculateFractional(sp.prop_type,
-                            sp.early_bird,
-                            sp.deadline,
-                            sp.num_tokens,
-                            sp.percentage,
-                            crowd.getDatabase(),
-                            crowd.getIssuerCreated());
-
-        //fprintf(mp_fp,"\nValues coming out of calculateFractional(): Total tokens, Tokens created, Tokens for issuer, amountMissed: issuer %s %ld %ld %ld %f\n",sp.issuer.c_str(), crowd.getUserCreated() + crowd.getIssuerCreated(), crowd.getUserCreated(), crowd.getIssuerCreated(), missedTokens);
-        
-        sp.historicalData = crowd.getDatabase();
-        sp.update_block = chainActive[block]->GetBlockHash();
-        sp.close_early = 1;
-        sp.timeclosed = blockTime;
-        sp.txid_close = txid;
-        _my_sps->updateSP(crowd.getPropertyId() , sp);
-        
-        update_tally_map(sp.issuer, crowd.getPropertyId(), missedTokens, MONEY);
-        //End
-
-        my_crowds.erase(it);
-
-        rc = 0;
-      }
-      break;
-    }
-
-    case MSC_TYPE_CREATE_PROPERTY_MANUAL:
-    {
-      const char *p = step2_SmartProperty(step_rc);
-      if (0>step_rc) return step_rc;
-      if (!p) return (PKT_ERROR_SP -11);
-
-      if (0 == step_rc)
-      {
-        CMPSPInfo::Entry newSP;
-        newSP.issuer = sender;
-        newSP.txid = txid;
-        newSP.prop_type = prop_type;
-        newSP.category.assign(category);
-        newSP.subcategory.assign(subcategory);
-        newSP.name.assign(name);
-        newSP.url.assign(url);
-        newSP.data.assign(data);
-        newSP.fixed = false;
-        newSP.manual = true;
-
-        const unsigned int id = _my_sps->putSP(ecosystem, newSP);
-        fprintf(mp_fp, "\nCREATED MANUAL PROPERTY id: %u admin: %s \n", id, sender.c_str());
-      }
-      rc = 0;
-      break;
-    }
-
-    case MSC_TYPE_GRANT_PROPERTY_TOKENS:
-      step_rc = step2_Value();
-      if (0>step_rc) return step_rc;
-
-      rc = logicMath_GrantTokens();
-      break;
-
-    case MSC_TYPE_REVOKE_PROPERTY_TOKENS:
-      step_rc = step2_Value();
-      if (0>step_rc) return step_rc;
-
-      rc = logicMath_RevokeTokens();
-      break;
-
-    case MSC_TYPE_SEND_TO_OWNERS:
-    if (disable_Divs) break;
-    else
-    {
-      step_rc = step2_Value();
-      if (0>step_rc) return step_rc;
-
-      boost::filesystem::path pathOwners = GetDataDir() / OWNERS_FILENAME;
-      FILE *fp = fopen(pathOwners.string().c_str(), "a");
-
-      if (fp)
-      {
-        // TODO: write info line into the file, timestamp, block #, txid etc.........
-      }
-      else
-      {
-        fprintf(mp_fp, "\nPROBLEM writing %s, errno= %d\n", INFO_FILENAME, errno);
-      }
-
-      rc = logicMath_SendToOwners(fp);
-
-      if (fp) fclose(fp);
-    }
-    break;
-
-    case MSC_TYPE_METADEX:
-      step_rc = step2_Value();
-      if (0>step_rc) return step_rc;
-
-      rc = logicMath_MetaDEx();
-      break;
-
-    default:
-
-      return (PKT_ERROR -100);
-  }
-
-  return rc;
- }
-
- // initial packet interpret step
- int step1()
- {
-  if (PACKET_SIZE_CLASS_A > pkt_size)  // class A could be 19 bytes
-  {
-    fprintf(mp_fp, "%s() ERROR PACKET TOO SMALL; size = %d, line %d, file: %s\n", __FUNCTION__, pkt_size, __LINE__, __FILE__);
-    return -(PKT_ERROR -1);
-  }
-
-  // collect version
-  memcpy(&version, &pkt[0], 2);
-  swapByteOrder16(version);
-
-  // blank out version bytes in the packet
-  pkt[0]=0; pkt[1]=0;
-  
-  memcpy(&type, &pkt[0], 4);
-
-  swapByteOrder32(type);
-
-  fprintf(mp_fp, "version: %d, Class %s\n", version, !multi ? "A":"B");
-  fprintf(mp_fp, "\t            type: %u (%s)\n", type, c_strMastercoinType(type));
-
-  return (type);
- }
-
- // extract Value for certain types of packets
- int step2_Value()
- {
-  memcpy(&nValue, &pkt[8], 8);
-  swapByteOrder64(nValue);
-
-  // here we are copying nValue into nNewValue to be stored into our leveldb later: MP_txlist
-  nNewValue = nValue;
-
-  memcpy(&currency, &pkt[4], 4);
-  swapByteOrder32(currency);
-
-  fprintf(mp_fp, "\t        currency: %u (%s)\n", currency, strMPCurrency(currency).c_str());
-  fprintf(mp_fp, "\t           value: %lu.%08lu\n", nValue/COIN, nValue%COIN);
-
-  if (MAX_INT_8_BYTES < nValue)
-  {
-    return (PKT_ERROR -801);  // out of range
-  }
-
-  return 0;
- }
-
- // overrun check, are we beyond the end of packet?
- bool isOverrun(const char *p, unsigned int line)
- {
- int now = (char *)p - (char *)&pkt;
- bool bRet = (now > pkt_size);
-
-    if (bRet) fprintf(mp_fp, "%s(%sline=%u):now= %u, pkt_size= %u\n", __FUNCTION__, bRet ? "OVERRUN !!! ":"", line, now, pkt_size);
-
-    return bRet;
- }
-
- // extract Smart Property data
- // RETURNS: the pointer to the next piece to be parsed
- // ERROR is returns NULL and/or sets the error_code
- const char *step2_SmartProperty(int &error_code)
- {
- const char *p = 11 + (char *)&pkt;
- std::vector<std::string>spstr;
- unsigned int i;
- unsigned int prop_id;
-
-  error_code = 0;
-
-  memcpy(&ecosystem, &pkt[4], 1);
-  fprintf(mp_fp, "\t       Ecosystem: %u\n", ecosystem);
-
-  // valid values are 1 & 2
-  if ((MASTERCOIN_CURRENCY_MSC != ecosystem) && (MASTERCOIN_CURRENCY_TMSC != ecosystem))
-  {
-    error_code = (PKT_ERROR_SP -501);
-    return NULL;
-  }
-
-  prop_id = _my_sps->peekNextSPID(ecosystem);
-
-  memcpy(&prop_type, &pkt[5], 2);
-  swapByteOrder16(prop_type);
-
-  memcpy(&prev_prop_id, &pkt[7], 4);
-  swapByteOrder32(prev_prop_id);
-
-  fprintf(mp_fp, "\t     Property ID: %u (%s)\n", prop_id, strMPCurrency(prop_id).c_str());
-  fprintf(mp_fp, "\t   Property type: %u (%s)\n", prop_type, c_strPropertyType(prop_type));
-  fprintf(mp_fp, "\tPrev Property ID: %u\n", prev_prop_id);
-
-  // only 1 & 2 are valid right now
-  if ((MSC_PROPERTY_TYPE_INDIVISIBLE != prop_type) && (MSC_PROPERTY_TYPE_DIVISIBLE != prop_type))
-  {
-    error_code = (PKT_ERROR_SP -502);
-    return NULL;
-  }
-
-  for (i = 0; i<5; i++)
-  {
-    spstr.push_back(std::string(p));
-    p += spstr.back().size() + 1;
-  }
-
-  i = 0;
-  memcpy(category, spstr[i++].c_str(), sizeof(category));
-  memcpy(subcategory, spstr[i++].c_str(), sizeof(subcategory));
-  memcpy(name, spstr[i++].c_str(), sizeof(name));
-  memcpy(url, spstr[i++].c_str(), sizeof(url));
-  memcpy(data, spstr[i++].c_str(), sizeof(data));
-
-  fprintf(mp_fp, "\t        Category: %s\n", category);
-  fprintf(mp_fp, "\t     Subcategory: %s\n", subcategory);
-  fprintf(mp_fp, "\t            Name: %s\n", name);
-  fprintf(mp_fp, "\t             URL: %s\n", url);
-  fprintf(mp_fp, "\t            Data: %s\n", data);
-
-  if (!isTransactionTypeAllowed(block, prop_id, type, version))
-  {
-    error_code = (PKT_ERROR_SP -503);
-    return NULL;
-  }
-
-  // name can not be NULL
-  if ('\0' == name[0])
-  {
-    error_code = (PKT_ERROR_SP -505);
-    return NULL;
-  }
-
-  if (!p) error_code = (PKT_ERROR_SP -510);
-
-  if (isOverrun(p, __LINE__))
-  {
-    error_code = (PKT_ERROR_SP -800);
-    return NULL;
-  }
-
-  return p;
- }
-
- int step3_sp_fixed(const char *p)
- {
-  if (!p) return (PKT_ERROR_SP -1);
-
-  memcpy(&nValue, p, 8);
-  swapByteOrder64(nValue);
-  p += 8;
-
-  // here we are copying nValue into nNewValue to be stored into our leveldb later: MP_txlist
-  nNewValue = nValue;
-
-  if (MSC_PROPERTY_TYPE_INDIVISIBLE == prop_type)
-  {
-    fprintf(mp_fp, "\t           value: %lu\n", nValue);
-    if (0 == nValue) return (PKT_ERROR_SP -101);
-  }
-  else
-  if (MSC_PROPERTY_TYPE_DIVISIBLE == prop_type)
-  {
-    fprintf(mp_fp, "\t           value: %lu.%08lu\n", nValue/COIN, nValue%COIN);
-    if (0 == nValue) return (PKT_ERROR_SP -102);
-  }
-
-  if (MAX_INT_8_BYTES < nValue)
-  {
-    return (PKT_ERROR -802);  // out of range
-  }
-
-  if (isOverrun(p, __LINE__)) return (PKT_ERROR_SP -900);
-
-  return 0;
- }
-
- int step3_sp_variable(const char *p)
- {
-  if (!p) return (PKT_ERROR_SP -1);
-
-  memcpy(&currency, p, 4);  // currency desired
-  swapByteOrder32(currency);
-  p += 4;
-
-  fprintf(mp_fp, "\t        currency: %u (%s)\n", currency, strMPCurrency(currency).c_str());
-
-  memcpy(&nValue, p, 8);
-  swapByteOrder64(nValue);
-  p += 8;
-
-  // here we are copying nValue into nNewValue to be stored into our leveldb later: MP_txlist
-  nNewValue = nValue;
-
-  if (MSC_PROPERTY_TYPE_INDIVISIBLE == prop_type)
-  {
-    fprintf(mp_fp, "\t           value: %lu\n", nValue);
-    if (0 == nValue) return (PKT_ERROR_SP -201);
-  }
-  else
-  if (MSC_PROPERTY_TYPE_DIVISIBLE == prop_type)
-  {
-    fprintf(mp_fp, "\t           value: %lu.%08lu\n", nValue/COIN, nValue%COIN);
-    if (0 == nValue) return (PKT_ERROR_SP -202);
-  }
-
-  if (MAX_INT_8_BYTES < nValue)
-  {
-    return (PKT_ERROR -803);  // out of range
-  }
-
-  memcpy(&deadline, p, 8);
-  swapByteOrder64(deadline);
-  p += 8;
-  fprintf(mp_fp, "\t        Deadline: %s (%lX)\n", DateTimeStrFormat("%Y-%m-%d %H:%M:%S", deadline).c_str(), deadline);
-
-  if (!deadline) return (PKT_ERROR_SP -203);  // deadline cannot be 0
-
-  // deadline can not be smaller than the timestamp of the current block
-  if (deadline < (uint64_t)blockTime) return (PKT_ERROR_SP -204);
-
-  memcpy(&early_bird, p++, 1);
-  fprintf(mp_fp, "\tEarly Bird Bonus: %u\n", early_bird);
-
-  memcpy(&percentage, p++, 1);
-  fprintf(mp_fp, "\t      Percentage: %u\n", percentage);
-
-  if (isOverrun(p, __LINE__)) return (PKT_ERROR_SP -765);
-
-  return 0;
- }
-
-  void Set(const uint256 &t, int b, unsigned int idx, int64_t bt)
-  {
-    txid = t;
-    block = b;
-    tx_idx = idx;
-    blockTime = bt;
-  }
-
-  void Set(string s, string r, uint64_t n, const uint256 &t, int b, unsigned int idx, unsigned char *p, unsigned int size, int fMultisig, uint64_t txf)
-  {
-    sender = s;
-    receiver = r;
-    txid = t;
-    block = b;
-    tx_idx = idx;
-    pkt_size = size < sizeof(pkt) ? size : sizeof(pkt);
-    nValue = n;
-    nNewValue = n;
-    multi= fMultisig;
-    tx_fee_paid = txf;
-
-    memcpy(&pkt, p, pkt_size);
-  }
-
-  bool operator<(const CMPTransaction& other) const
-  {
-    // sort by block # & additionally the tx index within the block
-    if (block != other.block) return block > other.block;
-    return tx_idx > other.tx_idx;
-  }
-
-  void print()
-  {
-    fprintf(mp_fp, "BLOCK: %d =txid: %s =fee: %1.8lf\n", block, txid.GetHex().c_str(), (double)tx_fee_paid/(double)COIN);
-    fprintf(mp_fp, "sender: %s ; receiver: %s\n", sender.c_str(), receiver.c_str());
-
-    if (0<pkt_size)
-    {
-      fprintf(mp_fp, "pkt: %s\n", HexStr(pkt, pkt_size + pkt, false).c_str());
-    }
-    else
-    {
-      ++InvalidCount_per_spec;
-    }
-  }
-};
-
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
@@ -4715,7 +3461,6 @@ uint256 txid = 0;
   {
     LogPrintf("%s(): aborted -- not enough MP currency (%lu < %lu)\n", __FUNCTION__, nAvailable, Amount);
     if (msc_debug_send) fprintf(mp_fp, "%s(): aborted -- not enough MP currency (%lu < %lu)\n", __FUNCTION__, nAvailable, Amount);
-    ++InvalidCount_per_spec;
 
     if (error_code) *error_code = rc;
 
@@ -5704,5 +4449,1095 @@ unsigned int CMPSPInfo::putSP(unsigned char ecosystem, Entry const &info)
 const std::string ExodusAddress()
 {
   return string(exodus_address);
+}
+
+ // the 31-byte packet & the packet #
+ // int interpretPacket(int blocknow, unsigned char pkt[], int size)
+ //
+ // RETURNS:  0 if the packet is fully valid
+ // RETURNS: <0 if the packet is invalid
+ // RETURNS: >0 the only known case today is: return PKT_RETURN_OFFER
+ //
+ // 
+ // the following functions may augment the amount in question (nValue):
+ // DEx_offerCreate()
+ // DEx_offerUpdate()
+ // DEx_acceptCreate()
+ // DEx_payment() -- DOES NOT fit nicely into the model, as it currently is NOT a MP TX (not even in leveldb) -- gotta rethink
+ //
+ // optional: provide the pointer to the CMPOffer object, it will get filled in
+ // verify that it does via if (MSC_TYPE_TRADE_OFFER == mp_obj.getType())
+ //
+ int CMPTransaction::interpretPacket(CMPOffer *obj_o)
+ {
+ int rc = PKT_ERROR;
+ int step_rc;
+
+  if (0>step1()) return -98765;
+
+  if ((obj_o) && (MSC_TYPE_TRADE_OFFER != type)) return -777; // can't fill in the Offer object !
+
+  // further processing for complex types
+  // TODO: version may play a role here !
+  switch(type)
+  {
+    case MSC_TYPE_SIMPLE_SEND:
+      step_rc = step2_Value();
+      if (0>step_rc) return step_rc;
+
+      rc = logicMath_SimpleSend();
+      break;
+
+    case MSC_TYPE_TRADE_OFFER:
+      step_rc = step2_Value();
+      if (0>step_rc) return step_rc;
+
+      rc = logicMath_TradeOffer(obj_o);
+      break;
+
+    case MSC_TYPE_ACCEPT_OFFER_BTC:
+      step_rc = step2_Value();
+      if (0>step_rc) return step_rc;
+
+      rc = logicMath_AcceptOffer_BTC();
+      break;
+
+    case MSC_TYPE_CREATE_PROPERTY_FIXED:
+    {
+      const char *p = step2_SmartProperty(step_rc);
+      if (0>step_rc) return step_rc;
+      if (!p) return (PKT_ERROR_SP -11);
+
+      step_rc = step3_sp_fixed(p);
+      if (0>step_rc) return step_rc;
+
+      if (0 == step_rc)
+      {
+        CMPSPInfo::Entry newSP;
+        newSP.issuer = sender;
+        newSP.txid = txid;
+        newSP.prop_type = prop_type;
+        newSP.num_tokens = nValue;
+        newSP.category.assign(category);
+        newSP.subcategory.assign(subcategory);
+        newSP.name.assign(name);
+        newSP.url.assign(url);
+        newSP.data.assign(data);
+        newSP.fixed = true;
+        newSP.creation_block = newSP.update_block = chainActive[block]->GetBlockHash();
+
+        const unsigned int id = _my_sps->putSP(ecosystem, newSP);
+        update_tally_map(sender, id, nValue, MONEY);
+      }
+      rc = 0;
+      break;
+    }
+
+    case MSC_TYPE_CREATE_PROPERTY_VARIABLE:
+    {
+      const char *p = step2_SmartProperty(step_rc);
+      if (0>step_rc) return step_rc;
+      if (!p) return (PKT_ERROR_SP -12);
+
+      step_rc = step3_sp_variable(p);
+      if (0>step_rc) return step_rc;
+
+      // check if one exists for this address already !
+      if (NULL != getCrowd(sender)) return (PKT_ERROR_SP -20);
+
+      // must check that the desired currency exists in our universe
+      if (false == _my_sps->hasSP(currency)) return (PKT_ERROR_SP -30);
+
+      if (0 == step_rc)
+      {
+        CMPSPInfo::Entry newSP;
+        newSP.issuer = sender;
+        newSP.txid = txid;
+        newSP.prop_type = prop_type;
+        newSP.num_tokens = nValue;
+        newSP.category.assign(category);
+        newSP.subcategory.assign(subcategory);
+        newSP.name.assign(name);
+        newSP.url.assign(url);
+        newSP.data.assign(data);
+        newSP.fixed = false;
+        newSP.currency_desired = currency;
+        newSP.deadline = deadline;
+        newSP.early_bird = early_bird;
+        newSP.percentage = percentage;
+        newSP.creation_block = newSP.update_block = chainActive[block]->GetBlockHash();
+
+        const unsigned int id = _my_sps->putSP(ecosystem, newSP);
+        my_crowds.insert(std::make_pair(sender, CMPCrowd(id, nValue, currency, deadline, early_bird, percentage, 0, 0)));
+        fprintf(mp_fp, "\nCREATED CROWDSALE id: %u value: %lu currency: %u\n", id, nValue, currency);  
+      }
+      rc = 0;
+      break;
+    }
+
+    case MSC_TYPE_CLOSE_CROWDSALE:
+    {
+    CrowdMap::iterator it = my_crowds.find(sender);
+
+      if (it != my_crowds.end())
+      {
+        // retrieve the property id from the incoming packet
+        memcpy(&currency, &pkt[4], 4);
+        swapByteOrder32(currency);
+
+        if (msc_debug_sp) fprintf(mp_fp, "%s() trying to ERASE CROWDSALE for propid= %u=%X, line %d, file: %s\n",
+         __FUNCTION__, currency, currency, __LINE__, __FILE__);
+
+        // ensure we are closing the crowdsale which we opened by checking the currency
+        if ((it->second).getPropertyId() != currency)
+        {
+          rc = (PKT_ERROR_SP -606);
+          break;
+        }
+
+        dumpCrowdsaleInfo(it->first, it->second);
+
+        // Begin calculate Fractional 
+
+        CMPCrowd &crowd = it->second;
+        
+        CMPSPInfo::Entry sp;
+        _my_sps->getSP(crowd.getPropertyId(), sp);
+
+        //fprintf(mp_fp, "\nValues going into calculateFractional(): hexid %s earlyBird %d deadline %lu numProps %lu issuerPerc %d, issuerCreated %ld \n", sp.txid.GetHex().c_str(), sp.early_bird, sp.deadline, sp.num_tokens, sp.percentage, crowd.getIssuerCreated());
+
+        double missedTokens = calculateFractional(sp.prop_type,
+                            sp.early_bird,
+                            sp.deadline,
+                            sp.num_tokens,
+                            sp.percentage,
+                            crowd.getDatabase(),
+                            crowd.getIssuerCreated());
+
+        //fprintf(mp_fp,"\nValues coming out of calculateFractional(): Total tokens, Tokens created, Tokens for issuer, amountMissed: issuer %s %ld %ld %ld %f\n",sp.issuer.c_str(), crowd.getUserCreated() + crowd.getIssuerCreated(), crowd.getUserCreated(), crowd.getIssuerCreated(), missedTokens);
+        
+        sp.historicalData = crowd.getDatabase();
+        sp.update_block = chainActive[block]->GetBlockHash();
+        sp.close_early = 1;
+        sp.timeclosed = blockTime;
+        sp.txid_close = txid;
+        _my_sps->updateSP(crowd.getPropertyId() , sp);
+        
+        update_tally_map(sp.issuer, crowd.getPropertyId(), missedTokens, MONEY);
+        //End
+
+        my_crowds.erase(it);
+
+        rc = 0;
+      }
+      break;
+    }
+
+    case MSC_TYPE_CREATE_PROPERTY_MANUAL:
+    {
+      const char *p = step2_SmartProperty(step_rc);
+      if (0>step_rc) return step_rc;
+      if (!p) return (PKT_ERROR_SP -11);
+
+      if (0 == step_rc)
+      {
+        CMPSPInfo::Entry newSP;
+        newSP.issuer = sender;
+        newSP.txid = txid;
+        newSP.prop_type = prop_type;
+        newSP.category.assign(category);
+        newSP.subcategory.assign(subcategory);
+        newSP.name.assign(name);
+        newSP.url.assign(url);
+        newSP.data.assign(data);
+        newSP.fixed = false;
+        newSP.manual = true;
+
+        const unsigned int id = _my_sps->putSP(ecosystem, newSP);
+        fprintf(mp_fp, "\nCREATED MANUAL PROPERTY id: %u admin: %s \n", id, sender.c_str());
+      }
+      rc = 0;
+      break;
+    }
+
+    case MSC_TYPE_GRANT_PROPERTY_TOKENS:
+      step_rc = step2_Value();
+      if (0>step_rc) return step_rc;
+
+      rc = logicMath_GrantTokens();
+      break;
+
+    case MSC_TYPE_REVOKE_PROPERTY_TOKENS:
+      step_rc = step2_Value();
+      if (0>step_rc) return step_rc;
+
+      rc = logicMath_RevokeTokens();
+      break;
+
+    case MSC_TYPE_SEND_TO_OWNERS:
+    if (disable_Divs) break;
+    else
+    {
+      step_rc = step2_Value();
+      if (0>step_rc) return step_rc;
+
+      boost::filesystem::path pathOwners = GetDataDir() / OWNERS_FILENAME;
+      FILE *fp = fopen(pathOwners.string().c_str(), "a");
+
+      if (fp)
+      {
+        // TODO: write info line into the file, timestamp, block #, txid etc.........
+      }
+      else
+      {
+        fprintf(mp_fp, "\nPROBLEM writing %s, errno= %d\n", INFO_FILENAME, errno);
+      }
+
+      rc = logicMath_SendToOwners(fp);
+
+      if (fp) fclose(fp);
+    }
+    break;
+
+    case MSC_TYPE_METADEX:
+      step_rc = step2_Value();
+      if (0>step_rc) return step_rc;
+
+      rc = logicMath_MetaDEx();
+      break;
+
+    default:
+
+      return (PKT_ERROR -100);
+  }
+
+  return rc;
+ }
+
+ // initial packet interpret step
+ int CMPTransaction::step1()
+ {
+  if (PACKET_SIZE_CLASS_A > pkt_size)  // class A could be 19 bytes
+  {
+    fprintf(mp_fp, "%s() ERROR PACKET TOO SMALL; size = %d, line %d, file: %s\n", __FUNCTION__, pkt_size, __LINE__, __FILE__);
+    return -(PKT_ERROR -1);
+  }
+
+  // collect version
+  memcpy(&version, &pkt[0], 2);
+  swapByteOrder16(version);
+
+  // blank out version bytes in the packet
+  pkt[0]=0; pkt[1]=0;
+  
+  memcpy(&type, &pkt[0], 4);
+
+  swapByteOrder32(type);
+
+  fprintf(mp_fp, "version: %d, Class %s\n", version, !multi ? "A":"B");
+  fprintf(mp_fp, "\t            type: %u (%s)\n", type, c_strMastercoinType(type));
+
+  return (type);
+ }
+
+ // extract Value for certain types of packets
+ int CMPTransaction::step2_Value()
+ {
+  memcpy(&nValue, &pkt[8], 8);
+  swapByteOrder64(nValue);
+
+  // here we are copying nValue into nNewValue to be stored into our leveldb later: MP_txlist
+  nNewValue = nValue;
+
+  memcpy(&currency, &pkt[4], 4);
+  swapByteOrder32(currency);
+
+  fprintf(mp_fp, "\t        currency: %u (%s)\n", currency, strMPCurrency(currency).c_str());
+  fprintf(mp_fp, "\t           value: %lu.%08lu\n", nValue/COIN, nValue%COIN);
+
+  if (MAX_INT_8_BYTES < nValue)
+  {
+    return (PKT_ERROR -801);  // out of range
+  }
+
+  return 0;
+ }
+
+ // overrun check, are we beyond the end of packet?
+ bool CMPTransaction::isOverrun(const char *p, unsigned int line)
+ {
+ int now = (char *)p - (char *)&pkt;
+ bool bRet = (now > pkt_size);
+
+    if (bRet) fprintf(mp_fp, "%s(%sline=%u):now= %u, pkt_size= %u\n", __FUNCTION__, bRet ? "OVERRUN !!! ":"", line, now, pkt_size);
+
+    return bRet;
+ }
+
+ // extract Smart Property data
+ // RETURNS: the pointer to the next piece to be parsed
+ // ERROR is returns NULL and/or sets the error_code
+ const char *CMPTransaction::step2_SmartProperty(int &error_code)
+ {
+ const char *p = 11 + (char *)&pkt;
+ std::vector<std::string>spstr;
+ unsigned int i;
+ unsigned int prop_id;
+
+  error_code = 0;
+
+  memcpy(&ecosystem, &pkt[4], 1);
+  fprintf(mp_fp, "\t       Ecosystem: %u\n", ecosystem);
+
+  // valid values are 1 & 2
+  if ((MASTERCOIN_CURRENCY_MSC != ecosystem) && (MASTERCOIN_CURRENCY_TMSC != ecosystem))
+  {
+    error_code = (PKT_ERROR_SP -501);
+    return NULL;
+  }
+
+  prop_id = _my_sps->peekNextSPID(ecosystem);
+
+  memcpy(&prop_type, &pkt[5], 2);
+  swapByteOrder16(prop_type);
+
+  memcpy(&prev_prop_id, &pkt[7], 4);
+  swapByteOrder32(prev_prop_id);
+
+  fprintf(mp_fp, "\t     Property ID: %u (%s)\n", prop_id, strMPCurrency(prop_id).c_str());
+  fprintf(mp_fp, "\t   Property type: %u (%s)\n", prop_type, c_strPropertyType(prop_type));
+  fprintf(mp_fp, "\tPrev Property ID: %u\n", prev_prop_id);
+
+  // only 1 & 2 are valid right now
+  if ((MSC_PROPERTY_TYPE_INDIVISIBLE != prop_type) && (MSC_PROPERTY_TYPE_DIVISIBLE != prop_type))
+  {
+    error_code = (PKT_ERROR_SP -502);
+    return NULL;
+  }
+
+  for (i = 0; i<5; i++)
+  {
+    spstr.push_back(std::string(p));
+    p += spstr.back().size() + 1;
+  }
+
+  i = 0;
+  memcpy(category, spstr[i++].c_str(), sizeof(category));
+  memcpy(subcategory, spstr[i++].c_str(), sizeof(subcategory));
+  memcpy(name, spstr[i++].c_str(), sizeof(name));
+  memcpy(url, spstr[i++].c_str(), sizeof(url));
+  memcpy(data, spstr[i++].c_str(), sizeof(data));
+
+  fprintf(mp_fp, "\t        Category: %s\n", category);
+  fprintf(mp_fp, "\t     Subcategory: %s\n", subcategory);
+  fprintf(mp_fp, "\t            Name: %s\n", name);
+  fprintf(mp_fp, "\t             URL: %s\n", url);
+  fprintf(mp_fp, "\t            Data: %s\n", data);
+
+  if (!isTransactionTypeAllowed(block, prop_id, type, version))
+  {
+    error_code = (PKT_ERROR_SP -503);
+    return NULL;
+  }
+
+  // name can not be NULL
+  if ('\0' == name[0])
+  {
+    error_code = (PKT_ERROR_SP -505);
+    return NULL;
+  }
+
+  if (!p) error_code = (PKT_ERROR_SP -510);
+
+  if (isOverrun(p, __LINE__))
+  {
+    error_code = (PKT_ERROR_SP -800);
+    return NULL;
+  }
+
+  return p;
+ }
+
+ int CMPTransaction::step3_sp_fixed(const char *p)
+ {
+  if (!p) return (PKT_ERROR_SP -1);
+
+  memcpy(&nValue, p, 8);
+  swapByteOrder64(nValue);
+  p += 8;
+
+  // here we are copying nValue into nNewValue to be stored into our leveldb later: MP_txlist
+  nNewValue = nValue;
+
+  if (MSC_PROPERTY_TYPE_INDIVISIBLE == prop_type)
+  {
+    fprintf(mp_fp, "\t           value: %lu\n", nValue);
+    if (0 == nValue) return (PKT_ERROR_SP -101);
+  }
+  else
+  if (MSC_PROPERTY_TYPE_DIVISIBLE == prop_type)
+  {
+    fprintf(mp_fp, "\t           value: %lu.%08lu\n", nValue/COIN, nValue%COIN);
+    if (0 == nValue) return (PKT_ERROR_SP -102);
+  }
+
+  if (MAX_INT_8_BYTES < nValue)
+  {
+    return (PKT_ERROR -802);  // out of range
+  }
+
+  if (isOverrun(p, __LINE__)) return (PKT_ERROR_SP -900);
+
+  return 0;
+ }
+
+ int CMPTransaction::step3_sp_variable(const char *p)
+ {
+  if (!p) return (PKT_ERROR_SP -1);
+
+  memcpy(&currency, p, 4);  // currency desired
+  swapByteOrder32(currency);
+  p += 4;
+
+  fprintf(mp_fp, "\t        currency: %u (%s)\n", currency, strMPCurrency(currency).c_str());
+
+  memcpy(&nValue, p, 8);
+  swapByteOrder64(nValue);
+  p += 8;
+
+  // here we are copying nValue into nNewValue to be stored into our leveldb later: MP_txlist
+  nNewValue = nValue;
+
+  if (MSC_PROPERTY_TYPE_INDIVISIBLE == prop_type)
+  {
+    fprintf(mp_fp, "\t           value: %lu\n", nValue);
+    if (0 == nValue) return (PKT_ERROR_SP -201);
+  }
+  else
+  if (MSC_PROPERTY_TYPE_DIVISIBLE == prop_type)
+  {
+    fprintf(mp_fp, "\t           value: %lu.%08lu\n", nValue/COIN, nValue%COIN);
+    if (0 == nValue) return (PKT_ERROR_SP -202);
+  }
+
+  if (MAX_INT_8_BYTES < nValue)
+  {
+    return (PKT_ERROR -803);  // out of range
+  }
+
+  memcpy(&deadline, p, 8);
+  swapByteOrder64(deadline);
+  p += 8;
+  fprintf(mp_fp, "\t        Deadline: %s (%lX)\n", DateTimeStrFormat("%Y-%m-%d %H:%M:%S", deadline).c_str(), deadline);
+
+  if (!deadline) return (PKT_ERROR_SP -203);  // deadline cannot be 0
+
+  // deadline can not be smaller than the timestamp of the current block
+  if (deadline < (uint64_t)blockTime) return (PKT_ERROR_SP -204);
+
+  memcpy(&early_bird, p++, 1);
+  fprintf(mp_fp, "\tEarly Bird Bonus: %u\n", early_bird);
+
+  memcpy(&percentage, p++, 1);
+  fprintf(mp_fp, "\t      Percentage: %u\n", percentage);
+
+  if (isOverrun(p, __LINE__)) return (PKT_ERROR_SP -765);
+
+  return 0;
+ }
+
+  int CMPTransaction::logicMath_SimpleSend()
+  {
+  int rc = PKT_ERROR_SEND -1000;
+  int invalid = 0;  // unused
+
+      if (!isTransactionTypeAllowed(block, currency, type, version)) return (PKT_ERROR_SEND -22);
+
+      if (sender.empty()) ++invalid;
+      // special case: if can't find the receiver -- assume sending to itself !
+      // may also be true for BTC payments........
+      // TODO: think about this..........
+      if (receiver.empty())
+      {
+        receiver = sender;
+      }
+      if (receiver.empty()) ++invalid;
+
+      // insufficient funds check & return
+      if (!update_tally_map(sender, currency, - nValue, MONEY))
+      {
+        return (PKT_ERROR -111);
+      }
+
+      update_tally_map(receiver, currency, nValue, MONEY);
+
+      // is there a crowdsale running from this recepient ?
+      {
+      CMPCrowd *crowd;
+
+        crowd = getCrowd(receiver);
+
+        if (crowd && (crowd->getCurrDes() == currency) )
+        {
+          CMPSPInfo::Entry sp;
+          bool spFound = _my_sps->getSP(crowd->getPropertyId(), sp);
+
+          fprintf(mp_fp, "INVESTMENT SEND to Crowdsale Issuer: %s\n", receiver.c_str());
+          
+          if (spFound)
+          {
+            //init this struct
+            std::pair <uint64_t,uint64_t> tokens;
+            //pass this in by reference to determine if max_tokens has been reached
+            bool close_crowdsale = false; 
+            //get txid
+            string sp_txid =  sp.txid.GetHex().c_str();
+
+            //Units going into the calculateFundraiser function must
+            //match the unit of the fundraiser's property_type.
+            //By default this means Satoshis in and satoshis out.
+            //In the condition that your fundraiser is Divisible,
+            //but you are accepting indivisible tokens, you must
+            //account for 1.0 Div != 1 Indiv but actually 1.0 Div == 100000000 Indiv.
+            //The unit must be shifted or your values will be incorrect,
+            //that is what we check for below.
+            if ( !(isPropertyDivisible(currency)) ) {
+              nValue = nValue * 1e8;
+            }
+
+            //fprintf(mp_fp, "\nValues going into calculateFundraiser(): hexid %s nValue %lu earlyBird %d deadline %lu blockTime %ld numProps %lu issuerPerc %d \n", txid.GetHex().c_str(), nValue, sp.early_bird, sp.deadline, (uint64_t) blockTime, sp.num_tokens, sp.percentage);
+
+            // calc tokens per this fundraise
+            calculateFundraiser(sp.prop_type,         //u short
+                                nValue,               // u int 64
+                                sp.early_bird,        // u char
+                                sp.deadline,          // u int 64
+                                (uint64_t) blockTime, // int 64
+                                sp.num_tokens,      // u int 64
+                                sp.percentage,        // u char
+                                getTotalTokens(crowd->getPropertyId()),
+                                tokens,
+                                close_crowdsale);
+
+            //fprintf(mp_fp,"\n before incrementing global tokens user: %ld issuer: %ld\n", crowd->getUserCreated(), crowd->getIssuerCreated());
+            
+            //getIssuerCreated() is passed into calcluateFractional() at close
+            //getUserCreated() is a convenient way to get user created during a crowdsale
+            crowd->incTokensUserCreated(tokens.first);
+            crowd->incTokensIssuerCreated(tokens.second);
+            
+            //fprintf(mp_fp,"\n after incrementing global tokens user: %ld issuer: %ld\n", crowd->getUserCreated(), crowd->getIssuerCreated());
+            
+            //init data to pass to txFundraiserData
+            uint64_t txdata[] = { (uint64_t) nValue, (uint64_t) blockTime, (uint64_t) tokens.first, (uint64_t) tokens.second };
+            
+            std::vector<uint64_t> txDataVec(txdata, txdata + sizeof(txdata)/sizeof(txdata[0]) );
+
+            //insert data
+            crowd->insertDatabase(txid.GetHex().c_str(), txDataVec  );
+
+            //fprintf(mp_fp,"\nValues coming out of calculateFundraiser(): hex %s: Tokens created, Tokens for issuer: %ld %ld\n",txid.GetHex().c_str(), tokens.first, tokens.second);
+
+            //update sender/rec
+            update_tally_map(sender, crowd->getPropertyId(), tokens.first, MONEY);
+            update_tally_map(receiver, crowd->getPropertyId(), tokens.second, MONEY);
+
+            // close crowdsale if we hit MAX_TOKENS
+            if( close_crowdsale ) {
+              eraseMaxedCrowdsale(receiver, blockTime, block);
+            }
+          }
+        }
+      }
+
+      rc = 0;
+
+    return rc;
+  }
+
+  int CMPTransaction::logicMath_TradeOffer(CMPOffer *obj_o)
+  {
+  int rc = PKT_ERROR_TRADEOFFER;
+  uint64_t amount_desired, min_fee;
+  unsigned char blocktimelimit, subaction = 0;
+  static const char * const subaction_name[] = { "empty", "new", "update", "cancel" };
+
+      if ((MASTERCOIN_CURRENCY_TMSC != currency) && (MASTERCOIN_CURRENCY_MSC != currency))
+      {
+        fprintf(mp_fp, "No smart properties allowed on the DeX...\n");
+        return PKT_ERROR_TRADEOFFER -72;
+      }
+
+      // block height checks, for instance DEX is only available on MSC starting with block 290630
+      if (!isTransactionTypeAllowed(block, currency, type, version)) return -88888;
+
+      memcpy(&amount_desired, &pkt[16], 8);
+      memcpy(&blocktimelimit, &pkt[24], 1);
+      memcpy(&min_fee, &pkt[25], 8);
+      memcpy(&subaction, &pkt[33], 1);
+
+      swapByteOrder64(amount_desired);
+      swapByteOrder64(min_fee);
+
+    fprintf(mp_fp, "\t  amount desired: %lu.%08lu\n", amount_desired / COIN, amount_desired % COIN);
+    fprintf(mp_fp, "\tblock time limit: %u\n", blocktimelimit);
+    fprintf(mp_fp, "\t         min fee: %lu.%08lu\n", min_fee / COIN, min_fee % COIN);
+    fprintf(mp_fp, "\t      sub-action: %u (%s)\n", subaction, subaction < sizeof(subaction_name)/sizeof(subaction_name[0]) ? subaction_name[subaction] : "");
+
+      if (obj_o)
+      {
+        obj_o->Set(amount_desired, min_fee, blocktimelimit, subaction);
+        return PKT_RETURN_OFFER;
+      }
+
+      // figure out which Action this is based on amount for sale, version & etc.
+      switch (version)
+      {
+        case MP_TX_PKT_V0:
+          if (0 != nValue)
+          {
+            if (!DEx_offerExists(sender, currency))
+            {
+              rc = DEx_offerCreate(sender, currency, nValue, block, amount_desired, min_fee, blocktimelimit, txid, &nNewValue);
+            }
+            else
+            {
+              rc = DEx_offerUpdate(sender, currency, nValue, block, amount_desired, min_fee, blocktimelimit, txid, &nNewValue);
+            }
+          }
+          else
+          // what happens if nValue is 0 for V0 ?  ANSWER: check if exists and it does -- cancel, otherwise invalid
+          {
+            if (DEx_offerExists(sender, currency))
+            {
+              rc = DEx_offerDestroy(sender, currency);
+            }
+          }
+
+          break;
+
+        case MP_TX_PKT_V1:
+        {
+          if (DEx_offerExists(sender, currency))
+          {
+            if ((CANCEL != subaction) && (UPDATE != subaction))
+            {
+              fprintf(mp_fp, "%s() INVALID SELL OFFER -- ONE ALREADY EXISTS, line %d, file: %s\n", __FUNCTION__, __LINE__, __FILE__);
+              rc = PKT_ERROR_TRADEOFFER -11;
+              break;
+            }
+          }
+          else
+          {
+            // Offer does not exist
+            if ((NEW != subaction))
+            {
+              fprintf(mp_fp, "%s() INVALID SELL OFFER -- UPDATE OR CANCEL ACTION WHEN NONE IS POSSIBLE\n", __FUNCTION__);
+              rc = PKT_ERROR_TRADEOFFER -12;
+              break;
+            }
+          }
+ 
+          switch (subaction)
+          {
+            case NEW:
+              rc = DEx_offerCreate(sender, currency, nValue, block, amount_desired, min_fee, blocktimelimit, txid, &nNewValue);
+              break;
+
+            case UPDATE:
+              rc = DEx_offerUpdate(sender, currency, nValue, block, amount_desired, min_fee, blocktimelimit, txid, &nNewValue);
+              break;
+
+            case CANCEL:
+              rc = DEx_offerDestroy(sender, currency);
+              break;
+
+            default:
+              rc = (PKT_ERROR -999);
+              break;
+          }
+
+          break;
+        }
+
+        default:
+          rc = (PKT_ERROR -500);  // neither V0 nor V1
+          break;
+      };
+
+    return rc;
+  }
+
+  int CMPTransaction::logicMath_AcceptOffer_BTC()
+  {
+  int rc = DEX_ERROR_ACCEPT;
+
+    // the min fee spec requirement is checked in the following function
+    rc = DEx_acceptCreate(sender, receiver, currency, nValue, block, tx_fee_paid, &nNewValue);
+
+    return rc;
+  }
+
+  int CMPTransaction::logicMath_SendToOwners(FILE *fp)
+  {
+  int rc = PKT_ERROR_STO -1000;
+
+      if (!isTransactionTypeAllowed(block, currency, type, version)) return (PKT_ERROR_STO -888);
+
+      // totalTokens will be 0 for non-existing currency
+      int64_t totalTokens = getTotalTokens(currency);
+      bool bDivisible = isPropertyDivisible(currency);
+
+      if (!bDivisible)fprintf(mp_fp, "\t    Total Tokens: %lu\n", totalTokens);
+      else fprintf(mp_fp, "\t    Total Tokens: %lu.%08lu\n", totalTokens/COIN, totalTokens%COIN);
+
+      if (0 >= totalTokens)
+      {
+        return (PKT_ERROR_STO -2);
+      }
+
+      // does the sender have enough of the property he's trying to "Send To Owners" ?
+      if (getMPbalance(sender, currency, MONEY) < nValue)
+      {
+        return (PKT_ERROR_STO -3);
+      }
+
+      totalTokens = 0;
+      int64_t n_owners = 0;
+
+      typedef std::set<pair<int64_t, string>, SendToOwners_compare> OwnerAddrType;
+      OwnerAddrType OwnerAddrSet;
+
+      {
+        for(map<string, CMPTally>::reverse_iterator my_it = mp_tally_map.rbegin(); my_it != mp_tally_map.rend(); ++my_it)
+        {
+          const string address = (my_it->first).c_str();
+
+          // do not count the sender
+          if (address == sender) continue;
+
+          int64_t tokens = 0;
+
+          tokens += getMPbalance(address, currency, MONEY);
+          tokens += getMPbalance(address, currency, SELLOFFER_RESERVE);
+          tokens += getMPbalance(address, currency, ACCEPT_RESERVE);
+
+          if (tokens)
+          {
+            OwnerAddrSet.insert(make_pair(tokens, address));
+            totalTokens += tokens;
+          }
+        }
+      }
+
+      if (!bDivisible)fprintf(mp_fp, "  Excluding Sender: %lu\n", totalTokens);
+      else fprintf(mp_fp, "  Excluding Sender: %lu.%08lu\n", totalTokens/COIN, totalTokens%COIN);
+
+      // loop #1 -- count the actual number of owners to receive the payment
+      for(OwnerAddrType::reverse_iterator my_it = OwnerAddrSet.rbegin(); my_it != OwnerAddrSet.rend(); ++my_it)
+      {
+        n_owners++;
+
+        // record the detailed info as needed
+        if (fp) fprintf(fp, "#%ld: %lu = %s\n", n_owners, (my_it->first), (my_it->second).c_str());
+      }
+
+      fprintf(mp_fp, "\t          Owners: %lu\n", n_owners);
+
+      // make sure we found some owners
+      if (0 >= n_owners)
+      {
+        return (PKT_ERROR_STO -4);
+      }
+
+      uint64_t nXferFee = TRANSFER_FEE_PER_OWNER * n_owners;
+
+      // determine which currency the fee will be paid in
+      const unsigned int feeCurrency = isTestEcosystemProperty(currency) ? MASTERCOIN_CURRENCY_TMSC : MASTERCOIN_CURRENCY_MSC;
+
+      fprintf(mp_fp, "\t    Transfer fee: %lu.%08lu %s\n", nXferFee/COIN, nXferFee%COIN, strMPCurrency(feeCurrency).c_str());
+
+      // enough coins to pay the fee?
+      if (getMPbalance(sender, feeCurrency, MONEY) < nXferFee)
+      {
+        return (PKT_ERROR_STO -5);
+      }
+
+      // special case check, only if distributing MSC or TMSC -- the currency the fee will be paid in
+      if (feeCurrency == currency)
+      {
+        if (getMPbalance(sender, feeCurrency, MONEY) < (nValue + nXferFee))
+        {
+          return (PKT_ERROR_STO -55);
+        }
+      }
+
+      // burn MSC or TMSC here: take the transfer fee away from the sender
+      if (!update_tally_map(sender, feeCurrency, - nXferFee, MONEY))
+      {
+        // impossible to reach this, the check was done just before (the check is not necessary since update_tally_map checks balances too)
+        return (PKT_ERROR_STO -500);
+      }
+
+      // loop #2
+      // split up what was taken and distribute between all holders
+      uint64_t owns, should_receive, will_really_receive, sent_so_far = 0;
+      double percentage, piece;
+      rc = 0; // almost good, the for-loop will set the error code
+      for(OwnerAddrType::reverse_iterator my_it = OwnerAddrSet.rbegin(); my_it != OwnerAddrSet.rend(); ++my_it)
+      {
+      const string address = my_it->second;
+
+        owns = my_it->first;
+        percentage = (double) owns / (double) totalTokens;
+        piece = percentage * nValue;
+        should_receive = ceil(piece);
+
+        // ensure that much is still available
+        if ((nValue - sent_so_far) < should_receive)
+        {
+          will_really_receive = nValue - sent_so_far;
+        }
+        else
+        {
+          will_really_receive = should_receive;
+        }
+
+        sent_so_far += will_really_receive;
+
+        if (msc_debug_sto)
+         fprintf(mp_fp, "%14lu = %s, perc= %20.10lf, piece= %20.10lf, should_get= %14lu, will_really_get= %14lu, sent_so_far= %14lu\n",
+          owns, address.c_str(), percentage, piece, should_receive, will_really_receive, sent_so_far);
+
+        if (!update_tally_map(sender, currency, - will_really_receive, MONEY))
+        {
+          return (PKT_ERROR_STO -1);
+        }
+
+        update_tally_map(address, currency, will_really_receive, MONEY);
+
+        if (sent_so_far >= nValue)
+        {
+          fprintf(mp_fp, "SendToOwners: DONE HERE : those who could get paid got paid, SOME DID NOT, but that's ok\n");
+          break; // done here, everybody who could get paid got paid
+        }
+      }
+
+      // sent_so_far must equal nValue here
+      if (sent_so_far != nValue)
+      {
+        fprintf(mp_fp, "send_so_far= %14lu, nValue= %14lu, n_owners= %lu\n",
+         sent_so_far, nValue, n_owners);
+
+        // rc = ???
+      }
+
+    return rc;
+  }
+
+int CMPTransaction::logicMath_MetaDEx()
+{
+  int rc = PKT_ERROR_METADEX -100;
+  unsigned char action = 0;
+
+    if (!isTransactionTypeAllowed(block, currency, type, version)) return (PKT_ERROR_METADEX -888);
+
+    memcpy(&desired_currency, &pkt[16], 4);
+    swapByteOrder32(desired_currency);
+
+    memcpy(&desired_value, &pkt[20], 8);
+    swapByteOrder64(desired_value);
+
+    fprintf(mp_fp, "\tdesired currency: %u (%s)\n", desired_currency, strMPCurrency(desired_currency).c_str());
+    fprintf(mp_fp, "\t   desired value: %lu.%08lu\n", desired_value/COIN, desired_value%COIN);
+
+    memcpy(&action, &pkt[28], 1);
+
+    fprintf(mp_fp, "\t          action: %u\n", action);
+
+    nNewValue = getMPbalance(sender, currency, MONEY);
+
+    // here we are copying nValue into nNewValue to be stored into our leveldb later: MP_txlist
+    if (nNewValue > nValue) nNewValue = nValue;
+
+    CMPMetaDEx *p_metadex = getMetaDEx(sender, currency);
+
+    // do checks that are not application for the Cancel action
+    if (CANCEL != action)
+    {
+      if (!isTransactionTypeAllowed(block, desired_currency, type, version)) return (PKT_ERROR_METADEX -889);
+
+      // ensure no cross-over of currencies from Test Eco to normal
+      if (isTestEcosystemProperty(currency) != isTestEcosystemProperty(desired_currency)) return (PKT_ERROR_METADEX -4);
+
+      // ensure the desired currency exists in our universe
+      if (!_my_sps->hasSP(desired_currency)) return (PKT_ERROR_METADEX -30);
+
+      if (!nValue) return (PKT_ERROR_METADEX -11);
+      if (!desired_value) return (PKT_ERROR_METADEX -12);
+    }
+
+    // TODO: use the nNewValue as the amount the seller/sender actually has to trade with
+    // ...
+
+    switch (action)
+    {
+      case NEW:
+        // Does the sender have any money?
+        if (0 >= nNewValue) return (PKT_ERROR_METADEX -3);
+
+        // An address cannot create a new offer while that address has an active sell offer with the same currencies in the same roles.
+        if (p_metadex) return (PKT_ERROR_METADEX -10);
+
+        // rough logic now: match the trade vs existing offers -- if not fully satisfied -- add to the metadex map
+        // ...
+
+        // TODO: more stuff like the old offer MONEY into RESERVE; then add offer to map
+
+        rc = MetaDEx_Create(sender, currency, nNewValue, block, desired_currency, desired_value, txid, tx_idx);
+
+        // ...
+
+        break;
+
+      case UPDATE:
+        if (!p_metadex) return (PKT_ERROR_METADEX -105);  // not found, nothing to update
+
+        // TODO: check if the sender has enough money... for an update
+
+        rc = MetaDEx_Update(sender, currency, nNewValue, block, desired_currency, desired_value, txid, tx_idx);
+
+        break;
+
+      case CANCEL:
+        if (!p_metadex) return (PKT_ERROR_METADEX -111);  // not found, nothing to cancel
+
+        rc = MetaDEx_Destroy(sender, currency);
+
+        break;
+
+      default: return (PKT_ERROR_METADEX -999);
+    }
+
+    return rc;
+}
+
+int CMPTransaction::logicMath_GrantTokens()
+{
+    int rc = PKT_ERROR_TOKENS - 1000;
+
+    if (!isTransactionTypeAllowed(block, currency, type, version)) {
+      fprintf(mp_fp, "\tRejecting Grant: Transaction type not yet allowed\n");
+      return (PKT_ERROR_TOKENS - 22);
+    }
+
+    if (sender.empty()) {
+      fprintf(mp_fp, "\tRejecting Grant: Sender is empty\n");
+      return (PKT_ERROR_TOKENS - 23);
+    }
+
+    // manual issuance check
+    if (false == _my_sps->hasSP(currency)) {
+      fprintf(mp_fp, "\tRejecting Grant: SP id:%d does not exist\n", currency);
+      return (PKT_ERROR_TOKENS - 24);
+    }
+
+    CMPSPInfo::Entry sp;
+    _my_sps->getSP(currency, sp);
+
+    if (false == sp.manual) {
+      fprintf(mp_fp, "\tRejecting Grant: SP id:%d was not issued with a TX 54\n", currency);
+      return (PKT_ERROR_TOKENS - 25);
+    }
+
+
+    // issuer check
+    if (false == boost::iequals(sender, sp.issuer)) {
+      fprintf(mp_fp, "\tRejecting Grant: %s is not the issuer of SP id:%d\n", sender.c_str(), currency);
+      return (PKT_ERROR_TOKENS - 26);
+    }
+
+    // overflow tokens check
+    if (MAX_INT_8_BYTES - sp.num_tokens < nValue) {
+      char prettyTokens[256];
+      if (sp.isDivisible()) {
+        snprintf(prettyTokens, 256, "%lu.%08lu", nValue / COIN, nValue % COIN);
+      } else {
+        snprintf(prettyTokens, 256, "%lu", nValue);
+      }
+      fprintf(mp_fp, "\tRejecting Grant: granting %s tokens on SP id:%d would overflow the maximum limit for tokens in a smart property\n", prettyTokens, currency);
+      return (PKT_ERROR_TOKENS - 27);
+    }
+
+    // grant the tokens
+    update_tally_map(sender, currency, nValue, MONEY);
+
+    // call the send logic
+    rc = logicMath_SimpleSend();
+
+    // record this grant
+    std::vector<uint64_t> dataPt;
+    dataPt.push_back(nValue);
+    dataPt.push_back(0);
+    string txidStr = txid.ToString();
+    sp.historicalData.insert(std::make_pair(txidStr, dataPt));
+    sp.update_block = chainActive[block]->GetBlockHash();
+    _my_sps->updateSP(currency, sp);
+
+    return rc;
+}
+
+int CMPTransaction::logicMath_RevokeTokens()
+{
+    int rc = PKT_ERROR_TOKENS - 1000;
+
+    if (!isTransactionTypeAllowed(block, currency, type, version)) {
+      fprintf(mp_fp, "\tRejecting Revoke: Transaction type not yet allowed\n");
+      return (PKT_ERROR_TOKENS - 22);
+    }
+
+    if (sender.empty()) {
+      fprintf(mp_fp, "\tRejecting Revoke: Sender is empty\n");
+      return (PKT_ERROR_TOKENS - 23);
+    }
+
+    // manual issuance check
+    if (false == _my_sps->hasSP(currency)) {
+      fprintf(mp_fp, "\tRejecting Revoke: SP id:%d does not exist\n", currency);
+      return (PKT_ERROR_TOKENS - 24);
+    }
+
+    CMPSPInfo::Entry sp;
+    _my_sps->getSP(currency, sp);
+
+    if (false == sp.manual) {
+      fprintf(mp_fp, "\tRejecting Revoke: SP id:%d was not issued with a TX 54\n", currency);
+      return (PKT_ERROR_TOKENS - 25);
+    }
+
+
+    // issuer check
+    if (false == boost::iequals(sender, sp.issuer)) {
+      fprintf(mp_fp, "\tRejecting Revoke: %s is not the issuer of SP id:%d\n", sender.c_str(), currency);
+      return (PKT_ERROR_TOKENS - 26);
+    }
+
+    // insufficient funds check and revoke
+    if (false == update_tally_map(sender, currency, -nValue, MONEY)) {
+      fprintf(mp_fp, "\tRejecting Revoke: insufficient funds\n");
+      return (PKT_ERROR_TOKENS - 111);
+    }
+
+    // record this revoke
+    std::vector<uint64_t> dataPt;
+    dataPt.push_back(0);
+    dataPt.push_back(nValue);
+    string txidStr = txid.ToString();
+    sp.historicalData.insert(std::make_pair(txidStr, dataPt));
+    sp.update_block = chainActive[block]->GetBlockHash();
+    _my_sps->updateSP(currency, sp);
+
+    rc = 0;
+    return rc;
 }
 
