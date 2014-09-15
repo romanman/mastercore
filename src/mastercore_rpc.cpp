@@ -1,4 +1,4 @@
-//
+// RPC calls
 
 #include "rpcserver.h"
 #include "util.h"

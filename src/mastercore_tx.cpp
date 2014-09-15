@@ -1,4 +1,4 @@
-//
+// Master Protocol transaction code
 
 #include "base58.h"
 #include "rpcserver.h"

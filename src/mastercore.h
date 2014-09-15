@@ -1175,6 +1175,8 @@ char *c_strPropertyType(int i);
 bool isTransactionTypeAllowed(int txBlock, unsigned int txCurrency, unsigned int txType, unsigned short version);
 
 bool getValidMPTX(const uint256 &txid, int *block = NULL, unsigned int *type = NULL, uint64_t *nAmended = NULL);
+
+bool update_tally_map(string who, unsigned int which_currency, int64_t amount, TallyType ttype);
 }
 
 #endif
