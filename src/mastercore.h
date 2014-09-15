@@ -136,7 +136,6 @@ extern FILE *mp_fp;
 extern int msc_debug_dex;
 
 extern CCriticalSection cs_tally;
-extern char *c_strMastercoinCurrency(int i);
 
 enum TallyType { MONEY = 0, SELLOFFER_RESERVE = 1, ACCEPT_RESERVE = 2, TALLY_TYPE_COUNT };
 
@@ -1127,6 +1126,10 @@ int mastercore_save_state( CBlockIndex const *pBlockIndex );
 
 uint64_t rounduint64(double d);
 
+void swapByteOrder16(unsigned short& us);
+void swapByteOrder32(unsigned int& ui);
+void swapByteOrder64(uint64_t& ull);
+
 namespace mastercore
 {
 typedef std::map<string, CMPOffer> OfferMap;
@@ -1146,6 +1149,8 @@ extern MetaDExMap metadex;
 
 bool isBigEndian(void);
 
+string strMPCurrency(unsigned int i);
+
 int GetHeight(void);
 bool isPropertyDivisible(unsigned int propertyId);
 bool isCrowdsaleActive(unsigned int propertyId);
@@ -1164,7 +1169,9 @@ CMPTally *getTally(const string & address);
 int64_t getTotalTokens(unsigned int propertyId, int64_t *n_owners_total = NULL);
 
 char *c_strMastercoinType(int i);
+char *c_strPropertyType(int i);
 
+bool isTransactionTypeAllowed(int txBlock, unsigned int txCurrency, unsigned int txType, unsigned short version);
 }
 
 #endif

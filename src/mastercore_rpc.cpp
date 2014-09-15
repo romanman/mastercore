@@ -33,6 +33,8 @@ using namespace json_spirit;
 
 using namespace mastercore;
 
+#include "mastercore_tx.h"
+
 // display the tally map & the offer/accept list(s)
 Value mscrpc(const Array& params, bool fHelp)
 {
