@@ -1201,7 +1201,8 @@ int p2shAllowed = 0;
             }
 
             fprintf(mp_fp, "____________________________________________________________________________________________________________________________________\n");
-            fprintf(mp_fp, "%s(block=%d, idx= %d); txid: %s\n", __FUNCTION__, nBlock, idx, wtx.GetHash().GetHex().c_str());
+            fprintf(mp_fp, "%s(block=%d, %s idx= %d); txid: %s\n", __FUNCTION__, nBlock, DateTimeStrFormat("%Y-%m-%d %H:%M:%S", nTime).c_str(),
+             idx, wtx.GetHash().GetHex().c_str());
 
             // now save output addresses & scripts for later use
             // also determine if there is a multisig in there, if so = Class B
