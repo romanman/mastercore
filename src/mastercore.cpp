@@ -72,7 +72,7 @@ static const string getmoney_testnet = "moneyqMan7uh8FqdCA2BV5yZ8qVrc9ikLP";
 
 using namespace mastercore;
 
-#include "mastercore_ex.h"
+#include "mastercore_dex.h"
 #include "mastercore_tx.h"
 
 // part of 'breakout' feature

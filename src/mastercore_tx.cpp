@@ -47,7 +47,7 @@ using namespace leveldb;
 
 using namespace mastercore;
 
-#include "mastercore_ex.h"
+#include "mastercore_dex.h"
 #include "mastercore_tx.h"
 
 // initial packet interpret step
