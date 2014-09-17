@@ -36,6 +36,7 @@ using namespace mastercore;
 
 #include "mastercore_dex.h"
 #include "mastercore_tx.h"
+#include "mastercore_sp.h"
 
 // display the tally map & the offer/accept list(s)
 Value mscrpc(const Array& params, bool fHelp)
