@@ -390,9 +390,113 @@ public:
   }
 };
 
+// live crowdsales are these objects in a map
+class CMPCrowd
+{
+private:
+  unsigned int propertyId;
+
+  uint64_t nValue;
+
+  unsigned int currency_desired;
+  uint64_t deadline;
+  unsigned char early_bird;
+  unsigned char percentage;
+
+  uint64_t u_created;
+  uint64_t i_created;
+
+  uint256 txid;  // NOTE: not persisted as it doesnt seem used
+
+  std::map<std::string, std::vector<uint64_t> > txFundraiserData;  // schema is 'txid:amtSent:deadlineUnix:userIssuedTokens:IssuerIssuedTokens;'
+public:
+  CMPCrowd():propertyId(0),nValue(0),currency_desired(0),deadline(0),early_bird(0),percentage(0),u_created(0),i_created(0)
+  {
+  }
+
+  CMPCrowd(unsigned int pid, uint64_t nv, unsigned int cd, uint64_t dl, unsigned char eb, unsigned char per, uint64_t uct, uint64_t ict):
+   propertyId(pid),nValue(nv),currency_desired(cd),deadline(dl),early_bird(eb),percentage(per),u_created(uct),i_created(ict)
+  {
+  }
+
+  unsigned int getPropertyId() const { return propertyId; }
+
+  uint64_t getDeadline() const { return deadline; }
+  uint64_t getCurrDes() const { return currency_desired; }
+
+  void incTokensUserCreated(uint64_t amount) { u_created += amount; }
+  void incTokensIssuerCreated(uint64_t amount) { i_created += amount; }
+
+  uint64_t getUserCreated() const { return u_created; }
+  uint64_t getIssuerCreated() const { return i_created; }
+
+  void insertDatabase(std::string txhash, std::vector<uint64_t> txdata ) { txFundraiserData.insert(std::make_pair<std::string, std::vector<uint64_t>& >(txhash,txdata)); }
+  std::map<std::string, std::vector<uint64_t> > getDatabase() const { return txFundraiserData; }
+
+  void print(const string & address, FILE *fp = stdout) const
+  {
+    fprintf(fp, "%34s : id=%u=%X; curr=%u, value= %lu, deadline: %s (%lX)\n", address.c_str(), propertyId, propertyId,
+     currency_desired, nValue, DateTimeStrFormat("%Y-%m-%d %H:%M:%S", deadline).c_str(), deadline);
+  }
+
+  void saveCrowdSale(ofstream &file, SHA256_CTX *shaCtx, string const &addr) const
+  {
+    // compose the outputline
+    // addr,propertyId,nValue,currency_desired,deadline,early_bird,percentage,created,mined
+    string lineOut = (boost::format("%s,%d,%d,%d,%d,%d,%d,%d,%d")
+      % addr
+      % propertyId
+      % nValue
+      % currency_desired
+      % deadline
+      % (int)early_bird
+      % (int)percentage
+      % u_created
+      % i_created ).str();
+
+    // append N pairs of address=nValue;blockTime for the database
+    std::map<std::string, std::vector<uint64_t> >::const_iterator iter;
+    for (iter = txFundraiserData.begin(); iter != txFundraiserData.end(); ++iter) {
+      lineOut.append((boost::format(",%s=") % (*iter).first).str());
+      std::vector<uint64_t> const &vals = (*iter).second;
+
+      std::vector<uint64_t>::const_iterator valIter;
+      for (valIter = vals.begin(); valIter != vals.end(); ++valIter) {
+        if (valIter != vals.begin()) {
+          lineOut.append(";");
+        }
+
+        lineOut.append((boost::format("%d") % (*valIter)).str());
+      }
+    }
+
+    // add the line to the hash
+    SHA256_Update(shaCtx, lineOut.c_str(), lineOut.length());
+
+    // write the line
+    file << lineOut << endl;
+  }
+};  // end of CMPCrowd class
+
 namespace mastercore
 {
 extern CMPSPInfo *_my_sps;
+
+typedef std::map<string, CMPCrowd> CrowdMap;
+
+extern CrowdMap my_crowds;
+
+CMPCrowd *getCrowd(const string & address);
+
+int calculateFractional(unsigned short int propType, unsigned char bonusPerc, uint64_t fundraiserSecs, 
+  uint64_t numProps, unsigned char issuerPerc, const std::map<std::string, std::vector<uint64_t> > txFundraiserData, 
+  const uint64_t amountPremined  );
+
+void eraseMaxedCrowdsale(const string &address, uint64_t blockTime, int block);
+
+unsigned int eraseExpiredCrowdsale(CBlockIndex const * pBlockIndex);
+
+void dumpCrowdsaleInfo(const string &address, CMPCrowd &crowd, bool bExpired = false);
 }
 
 #endif // _MASTERCOIN_SP

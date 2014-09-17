@@ -1,4 +1,4 @@
-// Smart Properties
+// Smart Properties & Crowd Sales
 
 #include "base58.h"
 #include "rpcserver.h"
@@ -254,5 +254,315 @@ int CMPSPInfo::popBlock(uint256 const &block_hash)
     } else {
       return remainingSPs;
     }
+}
+
+CMPCrowd *mastercore::getCrowd(const string & address)
+{
+CrowdMap::iterator my_it = my_crowds.find(address);
+
+  if (my_it != my_crowds.end()) return &(my_it->second);
+
+  return (CMPCrowd *) NULL;
+}
+
+bool mastercore::isPropertyDivisible(unsigned int propertyId)
+{
+// TODO: is a lock here needed
+CMPSPInfo::Entry sp;
+
+  if (_my_sps->getSP(propertyId, sp)) return sp.isDivisible();
+
+  return true;
+}
+
+bool mastercore::isCrowdsaleActive(unsigned int propertyId)
+{
+  for(CrowdMap::const_iterator it = my_crowds.begin(); it != my_crowds.end(); ++it)
+  {
+      CMPCrowd crowd = it->second;
+      unsigned int foundPropertyId = crowd.getPropertyId();
+      if (foundPropertyId == propertyId) return true;
+  }
+  return false;
+}
+
+// save info from the crowdsale that's being erased
+void mastercore::dumpCrowdsaleInfo(const string &address, CMPCrowd &crowd, bool bExpired)
+{
+  boost::filesystem::path pathInfo = GetDataDir() / INFO_FILENAME;
+  FILE *fp = fopen(pathInfo.string().c_str(), "a");
+
+  if (!fp)
+  {
+    fprintf(mp_fp, "\nPROBLEM writing %s, errno= %d\n", INFO_FILENAME, errno);
+    return;
+  }
+
+  fprintf(fp, "\n%s\n", DateTimeStrFormat("%Y-%m-%d %H:%M:%S", GetTime()).c_str());
+  fprintf(fp, "\nCrowdsale ended: %s\n", bExpired ? "Expired" : "Was closed");
+
+  crowd.print(address, fp);
+
+  fflush(fp);
+  fclose(fp);
+}
+
+// calculates and returns fundraiser bonus, issuer premine, and total tokens
+// propType : divisible/indiv
+// bonusPerc: bonus percentage
+// currentSecs: number of seconds of current tx
+// numProps: number of properties
+// issuerPerc: percentage of tokens to issuer
+int mastercore::calculateFractional(unsigned short int propType, unsigned char bonusPerc, uint64_t fundraiserSecs, 
+  uint64_t numProps, unsigned char issuerPerc, const std::map<std::string, std::vector<uint64_t> > txFundraiserData, 
+  const uint64_t amountPremined  )
+{
+
+  //initialize variables
+  double totalCreated = 0;
+  double issuerPercentage = (double) (issuerPerc * 0.01);
+
+  std::map<std::string, std::vector<uint64_t> >::const_iterator it;
+
+  //iterate through fundraiser data
+  for(it = txFundraiserData.begin(); it != txFundraiserData.end(); it++) {
+
+    // grab the seconds and amt transferred from this tx
+    uint64_t currentSecs = it->second.at(1);
+    double amtTransfer = it->second.at(0);
+
+    //make calc for bonus given in sec
+    uint64_t bonusSeconds = fundraiserSecs - currentSecs;
+  
+    //turn it into weeks
+    double weeks = bonusSeconds / (double) 604800;
+    
+    //make it a %
+    double ebPercentage = weeks * bonusPerc;
+    double bonusPercentage = ( ebPercentage / 100 ) + 1;
+  
+    //init var
+    double createdTokens;
+
+    //if indiv or div, do different truncation
+    if( MSC_PROPERTY_TYPE_DIVISIBLE == propType ) {
+      //calculate tokens
+      createdTokens = (amtTransfer/1e8) * (double) numProps * bonusPercentage ;
+      
+      //printf("prop 2: is %Lf, and %Lf \n", createdTokens, issuerTokens);
+      
+      //add totals up
+      totalCreated += createdTokens;
+    } else {
+      //printf("amount xfer %Lf and props %f and bonus percs %Lf \n", amtTransfer, (double) numProps, bonusPercentage);
+      
+      //same here
+      createdTokens = (uint64_t) ( (amtTransfer/1e8) * (double) numProps * bonusPercentage);
+      
+      totalCreated += createdTokens;
+    }
+  };
+
+  // calculate premine
+  double totalPremined = totalCreated * issuerPercentage;
+  double missedTokens;
+
+  // calculate based on div/indiv, truncation/not
+  if( 2 == propType ) {
+    missedTokens = totalPremined - amountPremined;
+  } else {
+    missedTokens = (uint64_t) (totalPremined - amountPremined);
+  }
+
+  //return value
+  return missedTokens;
+}
+
+
+//go hunting for whether a simple send is a crowdsale purchase
+//TODO !!!! horribly inefficient !!!! find a more efficient way to do this
+bool mastercore::isCrowdsalePurchase(uint256 txid, string address, int64_t *propertyId, int64_t *userTokens, int64_t *issuerTokens)
+{
+//1. loop crowdsales (active/non-active) looking for issuer address
+//2. loop those crowdsales for that address and check their participant txs in database
+
+  //check for an active crowdsale to this address
+  CMPCrowd *crowd;
+  crowd = getCrowd(address);
+  if (crowd)
+  {
+      unsigned int foundPropertyId = crowd->getPropertyId();
+      std::map<std::string, std::vector<uint64_t> > database = crowd->getDatabase();
+      std::map<std::string, std::vector<uint64_t> >::const_iterator it;
+      for(it = database.begin(); it != database.end(); it++)
+      {
+          string tmpTxid = it->first; //uint256 txid = it->first;
+          string compTxid = txid.GetHex().c_str(); //convert to string to compare since this is how stored in levelDB
+          if (tmpTxid == compTxid)
+          {
+              int64_t tmpUserTokens = it->second.at(2);
+              int64_t tmpIssuerTokens = it->second.at(3);
+              *propertyId = foundPropertyId;
+              *userTokens = tmpUserTokens;
+              *issuerTokens = tmpIssuerTokens;
+              return true;
+          }
+      }
+   }
+
+   //if we still haven't found txid, check non active crowdsales to this address
+   int64_t tmpPropertyId;
+   unsigned int nextSPID = _my_sps->peekNextSPID(1);
+   unsigned int nextTestSPID = _my_sps->peekNextSPID(2);
+
+   for (tmpPropertyId = 1; tmpPropertyId<nextSPID; tmpPropertyId++)
+   {
+       CMPSPInfo::Entry sp;
+       if (false != _my_sps->getSP(tmpPropertyId, sp))
+       {
+           if (sp.issuer == address)
+           {
+               std::map<std::string, std::vector<uint64_t> > database = sp.historicalData;
+               std::map<std::string, std::vector<uint64_t> >::const_iterator it;
+               for(it = database.begin(); it != database.end(); it++)
+               {
+                   string tmpTxid = it->first; //uint256 txid = it->first;
+                   string compTxid = txid.GetHex().c_str(); //convert to string to compare since this is how stored in levelDB
+                   if (tmpTxid == compTxid)
+                   {
+                       int64_t tmpUserTokens = it->second.at(2);
+                       int64_t tmpIssuerTokens = it->second.at(3);
+                       *propertyId = tmpPropertyId;
+                       *userTokens = tmpUserTokens;
+                       *issuerTokens = tmpIssuerTokens;
+                       return true;
+                   }
+               }
+           }
+       }
+   }
+   for (tmpPropertyId = TEST_ECO_PROPERTY_1; tmpPropertyId<nextTestSPID; tmpPropertyId++)
+   {
+       CMPSPInfo::Entry sp;
+       if (false != _my_sps->getSP(tmpPropertyId, sp))
+       {
+           if (sp.issuer == address)
+           {
+               std::map<std::string, std::vector<uint64_t> > database = sp.historicalData;
+               std::map<std::string, std::vector<uint64_t> >::const_iterator it;
+               for(it = database.begin(); it != database.end(); it++)
+               {
+                   string tmpTxid = it->first; //uint256 txid = it->first;
+                   string compTxid = txid.GetHex().c_str(); //convert to string to compare since this is how stored in levelDB
+                   if (tmpTxid == compTxid)
+                   {
+                       int64_t tmpUserTokens = it->second.at(2);
+                       int64_t tmpIssuerTokens = it->second.at(3);
+                       *propertyId = tmpPropertyId;
+                       *userTokens = tmpUserTokens;
+                       *issuerTokens = tmpIssuerTokens;
+                       return true;
+                   }
+               }
+           }
+       }
+   }
+
+  //didn't find anything, not a crowdsale purchase
+  return false;
+}
+
+void mastercore::eraseMaxedCrowdsale(const string &address, uint64_t blockTime, int block)
+{
+    CrowdMap::iterator it = my_crowds.find(address);
+    
+    if (it != my_crowds.end()) {
+
+      CMPCrowd &crowd = it->second;
+      fprintf(mp_fp, "%s() FOUND MAXED OUT CROWDSALE from address= '%s', erasing...\n", __FUNCTION__, address.c_str());
+
+      dumpCrowdsaleInfo(address, crowd);
+      
+      CMPSPInfo::Entry sp;
+      
+      //get sp from data struct
+      _my_sps->getSP(crowd.getPropertyId(), sp);
+      
+      //get txdata
+      sp.historicalData = crowd.getDatabase();
+      sp.close_early = 1;
+      sp.max_tokens = 1;
+      sp.timeclosed = blockTime;
+      
+      //update SP with this data
+      sp.update_block = chainActive[block]->GetBlockHash();
+      _my_sps->updateSP(crowd.getPropertyId() , sp);
+      
+      //No calculate fractional calls here, no more tokens (at MAX)
+      
+      my_crowds.erase(it);
+    }
+}
+
+unsigned int mastercore::eraseExpiredCrowdsale(CBlockIndex const * pBlockIndex)
+{
+const int64_t blockTime = pBlockIndex->GetBlockTime();
+unsigned int how_many_erased = 0;
+CrowdMap::iterator my_it = my_crowds.begin();
+
+  while (my_crowds.end() != my_it)
+  {
+    // my_it->first = key
+    // my_it->second = value
+
+    CMPCrowd &crowd = my_it->second;
+
+    if (blockTime > (int64_t)crowd.getDeadline())
+    {
+      fprintf(mp_fp, "%s() FOUND EXPIRED CROWDSALE from address= '%s', erasing...\n", __FUNCTION__, (my_it->first).c_str());
+
+      // TODO: dump the info about this crowdsale being delete into a TXT file (JSON perhaps)
+      dumpCrowdsaleInfo(my_it->first, my_it->second, true);
+      
+      // Begin calculate Fractional 
+      CMPSPInfo::Entry sp;
+      
+      //get sp from data struct
+      _my_sps->getSP(crowd.getPropertyId(), sp);
+
+      //fprintf(mp_fp, "\nValues going into calculateFractional(): hexid %s earlyBird %d deadline %lu numProps %lu issuerPerc %d, issuerCreated %ld \n", sp.txid.GetHex().c_str(), sp.early_bird, sp.deadline, sp.num_tokens, sp.percentage, crowd.getIssuerCreated());
+
+      //find missing tokens
+      double missedTokens = calculateFractional(sp.prop_type,
+                          sp.early_bird,
+                          sp.deadline,
+                          sp.num_tokens,
+                          sp.percentage,
+                          crowd.getDatabase(),
+                          crowd.getIssuerCreated());
+
+
+      //fprintf(mp_fp,"\nValues coming out of calculateFractional(): Total tokens, Tokens created, Tokens for issuer, amountMissed: issuer %s %lu %lu %lu %f\n",sp.issuer.c_str(), crowd.getUserCreated() + crowd.getIssuerCreated(), crowd.getUserCreated(), crowd.getIssuerCreated(), missedTokens);
+
+      //get txdata
+      sp.historicalData = crowd.getDatabase();
+
+      //update SP with this data
+      sp.update_block = pBlockIndex->GetBlockHash();
+     _my_sps->updateSP(crowd.getPropertyId() , sp);
+
+      //update values
+      update_tally_map(sp.issuer, crowd.getPropertyId(), missedTokens, MONEY);
+      //End
+                     
+      my_crowds.erase(my_it++);
+
+      ++how_many_erased;
+    }
+    else my_it++;
+
+  }
+
+  return how_many_erased;
 }
 
