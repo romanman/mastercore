@@ -88,6 +88,8 @@ static int nWaterlineBlock = 0;  //
 static uint64_t exodus_prev = 0;
 static uint64_t exodus_balance;
 
+int64_t mastercore_referenceAmount = 0;
+
 static boost::filesystem::path MPPersistencePath;
 
 int msc_debug_parser_data = 0;
@@ -213,40 +215,6 @@ string str = "*unknown*";
   }
 
   return str;
-}
-
-char *mastercore::c_strMastercoinType(int i)
-{
-  switch (i)
-  {
-    case MSC_TYPE_SIMPLE_SEND: return ((char *)"Simple Send");
-    case MSC_TYPE_RESTRICTED_SEND: return ((char *)"Restricted Send");
-    case MSC_TYPE_SEND_TO_OWNERS: return ((char *)"Send To Owners");
-    case MSC_TYPE_AUTOMATIC_DISPENSARY: return ((char *)"Automatic Dispensary");
-    case MSC_TYPE_TRADE_OFFER: return ((char *)"DEx Sell Offer");
-    case MSC_TYPE_METADEX: return ((char *)"MetaDEx: Offer/Accept one Master Protocol Coins for another");
-    case MSC_TYPE_ACCEPT_OFFER_BTC: return ((char *)"DEx Accept Offer");
-    case MSC_TYPE_CREATE_PROPERTY_FIXED: return ((char *)"Create Property - Fixed");
-    case MSC_TYPE_CREATE_PROPERTY_VARIABLE: return ((char *)"Create Property - Variable");
-    case MSC_TYPE_PROMOTE_PROPERTY: return ((char *)"Promote Property");
-    case MSC_TYPE_CLOSE_CROWDSALE: return ((char *)"Close Crowdsale");
-    case MSC_TYPE_CREATE_PROPERTY_MANUAL: return ((char *)"Create Property - Manual");
-    case MSC_TYPE_GRANT_PROPERTY_TOKENS: return ((char *)"Grant Property Tokens");
-    case MSC_TYPE_REVOKE_PROPERTY_TOKENS: return ((char *)"Revoke Property Tokens");
-
-    default: return ((char *)"* unknown type *");
-  }
-}
-
-char *mastercore::c_strPropertyType(int i)
-{
-  switch (i)
-  {
-    case MSC_PROPERTY_TYPE_DIVISIBLE: return (char *) "divisible";
-    case MSC_PROPERTY_TYPE_INDIVISIBLE: return (char *) "indivisible";
-  }
-
-  return (char *) "*** property type error ***";
 }
 
 bool isBigEndian()
@@ -2582,7 +2550,7 @@ vector< pair<CScript, int64_t> > vecSend;
   {
     // Send To Owners is the first use case where the receiver is empty
     scriptPubKey.SetDestination(CBitcoinAddress(receiverAddress).Get());
-    vecSend.push_back(make_pair(scriptPubKey, GetDustLimit(scriptPubKey)));
+    vecSend.push_back(make_pair(scriptPubKey, 0 < mastercore_referenceAmount ? mastercore_referenceAmount: GetDustLimit(scriptPubKey)));
   }
 
   // add the marker output

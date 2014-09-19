@@ -54,6 +54,9 @@ enum TransactionType {
   MSC_TYPE_SIMPLE_SEND              =  0,
   MSC_TYPE_RESTRICTED_SEND          =  2,
   MSC_TYPE_SEND_TO_OWNERS           =  3,
+  MSC_TYPE_SAVINGS_MARK             = 10,
+  MSC_TYPE_SAVINGS_COMPROMISED      = 11,
+  MSC_TYPE_RATELIMITED_MARK         = 12,
   MSC_TYPE_AUTOMATIC_DISPENSARY     = 15,
   MSC_TYPE_TRADE_OFFER              = 20,
   MSC_TYPE_METADEX                  = 21,
@@ -363,8 +366,7 @@ CMPTally *getTally(const string & address);
 
 int64_t getTotalTokens(unsigned int propertyId, int64_t *n_owners_total = NULL);
 
-char *c_strMastercoinType(int i);
-char *c_strPropertyType(int i);
+char *c_strMasterProtocolTXType(int i);
 
 bool isTransactionTypeAllowed(int txBlock, unsigned int txCurrency, unsigned int txType, unsigned short version);
 
