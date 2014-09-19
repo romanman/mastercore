@@ -268,9 +268,6 @@ if (fHelp || params.size() < 3 || params.size() > 4)
 
   unsigned int propertyId = int(tmpPropertyId);
 
-  if (!isTestEcosystemProperty(propertyId)) // restrict usage to test eco only
-            throw JSONRPCError(RPC_INVALID_PARAMETER, "Send to owners restricted to test properties only in this build"); 
-
   CMPSPInfo::Entry sp;
   if (false == _my_sps->getSP(propertyId, sp)) {
     throw JSONRPCError(RPC_INVALID_PARAMETER, "Property ID does not exist");
