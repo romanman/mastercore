@@ -52,7 +52,7 @@
 
 // comment out MY_HACK & others here - used for Unit Testing only !
 // #define MY_HACK
-// #define DISABLE_LOG_FILE 
+#define DISABLE_LOG_FILE 
 
 FILE *mp_fp = NULL;
 
@@ -2338,13 +2338,18 @@ int64_t GetDustLimit(const CScript& scriptPubKey)
     return nDustLimit;
 }
 
-static int selectCoins(const string &FromAddress, CCoinControl &coinControl) {
+static int selectCoins(const string &FromAddress, CCoinControl &coinControl)
+{
   CWallet *wallet = pwalletMain;
-  const int64_t n_max = (COIN * (20 * (0.0001))); // assume 20KBytes max TX size at 0.0001 per kilobyte
+  int64_t n_max = (COIN * (20 * (0.0001))); // assume 20KBytes max TX size at 0.0001 per kilobyte
   // FUTURE: remove n_max and try 1st smallest input, then 2 smallest inputs etc. -- i.e. move Coin Control selection closer to CreateTransaction
   int64_t n_total = 0;  // total output funds collected
+
+  // if referenceamount is set it is needed to be accounted for here too
+  if (0 < mastercore_referenceAmount) n_max += mastercore_referenceAmount;
+
   LOCK(wallet->cs_wallet);
-  {
+
     string sAddress = "";
 
     // iterate over the wallet
@@ -2399,7 +2404,6 @@ static int selectCoins(const string &FromAddress, CCoinControl &coinControl) {
       if (n_max <= n_total)
         break;
     } // for iterate over the wallet end
-  }
 
   return 0;
 }
