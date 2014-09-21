@@ -638,7 +638,6 @@ int CMPTransaction::logicMath_ChangeIssuer()
     return (PKT_ERROR_TOKENS - 23);
   }
 
-  // manual issuance check
   if (false == _my_sps->hasSP(currency)) {
     fprintf(mp_fp, "\tRejecting Change of Issuer: SP id:%d does not exist\n", currency);
     return (PKT_ERROR_TOKENS - 24);
