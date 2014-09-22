@@ -116,7 +116,6 @@ Current Featureset:
 * Retrieving information about any Master Protocol Transaction [doc] (https://github.com/mastercoin-MSC/mastercore/blob/michael-0921/doc/apidocumentation.md#retrieving-a-master-protocol-transaction)
 
 * Listing historical transactions of addresses in the wallet [doc] (https://github.com/mastercoin-MSC/mastercore/blob/michael-0921/doc/apidocumentation.md#listing-historical-transactions)                            
-
 * Retreiving MP information about a Smart Property [doc] (https://github.com/mastercoin-MSC/mastercore/blob/michael-0921/doc/apidocumentation.md#retrieving-information-about-a-master-protocol-property)
 
 * Retreiving active and expired crowdsale information [doc] (https://github.com/mastercoin-MSC/mastercore/blob/michael-0921/doc/apidocumentation.md#retrieving-information-for-a-master-protocol-crowdsale)
@@ -132,12 +131,6 @@ Known Issues:
 
 Pending additions:
 -------------------
-
-* Make sure send_MP returns an appropriate error code when out of funds
-
-* Payments for DEx transactions not currently available in history
-
-* Need to finish adding protections for blockchain orphans (re-orgs)
 
 * Fully functional UI
 
