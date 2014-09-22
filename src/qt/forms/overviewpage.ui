@@ -529,34 +529,6 @@
                 </property>
                </widget>
               </item>
-              <item row="1" column="0">
-               <widget class="QLabel" name="SPname2">
-                <property name="text">
-                 <string>Unknown Property</string>
-                </property>
-               </widget>
-              </item>
-              <item row="2" column="0">
-               <widget class="QLabel" name="SPname3">
-                <property name="text">
-                 <string>Unknown Property</string>
-                </property>
-               </widget>
-              </item>
-              <item row="3" column="0">
-               <widget class="QLabel" name="SPname4">
-                <property name="text">
-                 <string>Unknown Property</string>
-                </property>
-               </widget>
-              </item>
-              <item row="4" column="0">
-               <widget class="QLabel" name="SPname5">
-                <property name="text">
-                 <string>Unknown Property</string>
-                </property>
-               </widget>
-              </item>
               <item row="0" column="1">
                <widget class="QLabel" name="SPbal1">
                 <property name="font">
@@ -570,6 +542,13 @@
                 </property>
                 <property name="alignment">
                  <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+                </property>
+               </widget>
+              </item>
+              <item row="1" column="0">
+               <widget class="QLabel" name="SPname2">
+                <property name="text">
+                 <string>Unknown Property</string>
                 </property>
                </widget>
               </item>
@@ -589,6 +568,13 @@
                 </property>
                </widget>
               </item>
+              <item row="2" column="0">
+               <widget class="QLabel" name="SPname3">
+                <property name="text">
+                 <string>Unknown Property</string>
+                </property>
+               </widget>
+              </item>
               <item row="2" column="1">
                <widget class="QLabel" name="SPbal3">
                 <property name="font">
@@ -602,6 +588,13 @@
                 </property>
                 <property name="alignment">
                  <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+                </property>
+               </widget>
+              </item>
+              <item row="3" column="0">
+               <widget class="QLabel" name="SPname4">
+                <property name="text">
+                 <string>Unknown Property</string>
                 </property>
                </widget>
               </item>
@@ -624,6 +617,13 @@
                 </property>
                </widget>
               </item>
+              <item row="4" column="0">
+               <widget class="QLabel" name="SPname5">
+                <property name="text">
+                 <string>Unknown Property</string>
+                </property>
+               </widget>
+              </item>
               <item row="4" column="1">
                <widget class="QLabel" name="SPbal5">
                 <property name="font">
@@ -640,20 +640,32 @@
                 </property>
                </widget>
               </item>
-              <item row="5" column="1">
-               <widget class="QLabel" name="showAllBalancesLabel">
-                <property name="styleSheet">
-                 <string notr="true">QLabel { color: blue; }</string>
-                </property>
-                <property name="text">
-                 <string>Show All Balances</string>
-                </property>
-                <property name="alignment">
-                 <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
-                </property>
-               </widget>
-              </item>
              </layout>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="horizontalLayout_14">
+            <property name="bottomMargin">
+             <number>0</number>
+            </property>
+            <item>
+             <widget class="QLabel" name="notifyMoreSPLabel">
+              <property name="font">
+               <font>
+                <pointsize>7</pointsize>
+               </font>
+              </property>
+              <property name="styleSheet">
+               <string notr="true"/>
+              </property>
+              <property name="text">
+               <string>*Not all properties displayed (see balances page)</string>
+              </property>
+              <property name="alignment">
+               <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+              </property>
+             </widget>
             </item>
            </layout>
           </item>

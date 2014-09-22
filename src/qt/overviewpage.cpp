@@ -168,8 +168,6 @@ OverviewPage::OverviewPage(QWidget *parent) :
     ui->proclabel->setText("(" + tr("processing") + ")"); //msc processing label
     ui->proclabel_2->setText("(" + tr("processing") + ")"); //smart property processing label
 
-    connect(ui->showAllBalancesLabel, SIGNAL(clicked()), this, SLOT((switchToBalancesPage)));
-
     // start with displaying the "out of sync" warnings
     showOutOfSyncWarning(true);
 }
@@ -213,15 +211,15 @@ void OverviewPage::setBalance(qint64 balance, qint64 unconfirmedBalance, qint64 
     //scrappy way to do this, find a more efficient way of interacting with labels
     //show first 5 SPs with balances - needs to be converted to listwidget or something
     unsigned int propertyId;
-    unsigned int lastFoundPropertyId = 1; 
-    string spName[6];
-    uint64_t spBal[6];
-    bool spDivisible[6];
-    bool spFound[6];
+    unsigned int lastFoundPropertyId = 1;
+    string spName[7];
+    uint64_t spBal[7];
+    bool spDivisible[7];
+    bool spFound[7];
     unsigned int spItem;
     bool foundProperty = false;
 
-    for (spItem = 1; spItem < 6; spItem++)
+    for (spItem = 1; spItem < 7; spItem++)
     {
         spFound[spItem] = false;
         for (propertyId = lastFoundPropertyId+1; propertyId<100000; propertyId++)
@@ -232,6 +230,7 @@ void OverviewPage::setBalance(qint64 balance, qint64 unconfirmedBalance, qint64 
                 lastFoundPropertyId = propertyId;
                 foundProperty=true;
                 spName[spItem] = getPropertyName(propertyId).c_str();
+                if(spName[spItem].size()>22) spName[spItem]=spName[spItem].substr(0,22)+"...";
                 spName[spItem] += " (#" + static_cast<ostringstream*>( &(ostringstream() << propertyId) )->str() + ")";
                 spBal[spItem] = global_balance_money_maineco[propertyId];
                 spDivisible[spItem] = isPropertyDivisible(propertyId);
@@ -249,6 +248,7 @@ void OverviewPage::setBalance(qint64 balance, qint64 unconfirmedBalance, qint64 
                     lastFoundPropertyId = propertyId;
                     foundProperty=true;
                     spName[spItem] = getPropertyName(propertyId+2147483647).c_str();
+                    if(spName[spItem].size()>22) spName[spItem]=spName[spItem].substr(0,22)+"...";
                     spName[spItem] += " (#" + static_cast<ostringstream*>( &(ostringstream() << propertyId+2147483647) )->str() + ")";
                     spBal[spItem] = global_balance_money_testeco[propertyId];
                     spDivisible[spItem] = isPropertyDivisible(propertyId+2147483647);
@@ -282,6 +282,8 @@ void OverviewPage::setBalance(qint64 balance, qint64 unconfirmedBalance, qint64 
     {
         ui->SPname1->setText("N/A");
         ui->SPbal1->setText("N/A");
+        ui->SPname1->setVisible(false);
+        ui->SPbal1->setVisible(false);
     }
     if (spFound[2])
     {
@@ -301,6 +303,8 @@ void OverviewPage::setBalance(qint64 balance, qint64 unconfirmedBalance, qint64 
     {
         ui->SPname2->setText("N/A");
         ui->SPbal2->setText("N/A");
+        ui->SPname2->setVisible(false);
+        ui->SPbal2->setVisible(false);
     }
     if (spFound[3])
     {
@@ -320,6 +324,8 @@ void OverviewPage::setBalance(qint64 balance, qint64 unconfirmedBalance, qint64 
     {
         ui->SPname3->setText("N/A");
         ui->SPbal3->setText("N/A");
+        ui->SPname3->setVisible(false);
+        ui->SPbal3->setVisible(false);
     }
     if (spFound[4])
     {
@@ -339,6 +345,8 @@ void OverviewPage::setBalance(qint64 balance, qint64 unconfirmedBalance, qint64 
     {
         ui->SPname4->setText("N/A");
         ui->SPbal4->setText("N/A");
+        ui->SPname4->setVisible(false);
+        ui->SPbal4->setVisible(false);
     }
     if (spFound[5])
     {
@@ -358,7 +366,10 @@ void OverviewPage::setBalance(qint64 balance, qint64 unconfirmedBalance, qint64 
     {
         ui->SPname5->setText("N/A");
         ui->SPbal5->setText("N/A");
+        ui->SPname5->setVisible(false);
+        ui->SPbal5->setVisible(false);
     }
+    if (spFound[6]) { ui->notifyMoreSPLabel->setVisible(true); } else { ui->notifyMoreSPLabel->setVisible(false); }
 }
 
 void OverviewPage::switchToBalancesPage()
