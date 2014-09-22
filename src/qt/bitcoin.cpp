@@ -529,6 +529,29 @@ int main(int argc, char *argv[])
         return false;
     }
 
+    /// 6A. Show warning
+    string strWarningText = "This software is EXPERIMENTAL software for TESTNET TRANSACTIONS only. USE ON MAINNET AT YOUR OWN RISK.\n\n";
+    strWarningText += "The protocol and transaction processing rules for Mastercoin are still under active development and are subject to change in future.\n\n";
+    strWarningText += "Master Core should be considered an alpha-level product, and you use it at your own risk. Neither the Mastercoin Foundation nor the Master Core developers assumes any responsibility for funds misplaced, mishandled, lost, or misallocated.\n\n";
+    strWarningText += "Further, please note that this installation of Master Core should be viewed as EXPERIMENTAL. Your wallet data may be lost, deleted, or corrupted, with or without warning due to bugs or glitches. Please take caution.\n\n";
+    strWarningText += "This software is provided open-source at no cost. You are responsible for knowing the law in your country and determining if your use of this software contravenes any local laws.\n\n";
+    strWarningText += "DO NOT use wallet(s) with any significant amount of any property/currency while testing!";
+    QString warningText = QString::fromStdString(strWarningText);
+    QMessageBox warningDialog;
+    warningDialog.setIcon(QMessageBox::Warning);
+    warningDialog.setWindowTitle("WARNING - Experimental Software");
+    warningDialog.setText(warningText);
+    warningDialog.setStandardButtons(QMessageBox::No|QMessageBox::Yes);
+    warningDialog.setDefaultButton(QMessageBox::No);
+    warningDialog.setButtonText( QMessageBox::No, "Exit" );
+    warningDialog.setButtonText( QMessageBox::Yes, "Acknowledge + Continue" );
+    if(warningDialog.exec() == QMessageBox::No)
+    {
+        // exit, user does not agree to warning
+        printf("exit\n");
+        qApp->quit();
+    }
+
     /// 7. Determine network (and switch to network specific options)
     // - Do not call Params() before this step
     // - Do this after parsing the configuration file, as the network can be switched there

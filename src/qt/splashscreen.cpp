@@ -11,7 +11,7 @@
 #ifdef ENABLE_WALLET
 #include "wallet.h"
 #endif
-
+#include <QMessageBox>
 #include <QApplication>
 #include <QPainter>
 

@@ -69,6 +69,7 @@ SendMPDialog::SendMPDialog(QWidget *parent) :
     model(0)
 {
     ui->setupUi(this);
+    //this->model = model; - not viable method for setting walletmodel
 
 #ifdef Q_OS_MAC // Icons on push buttons are very uncommon on Mac
     ui->addButton->setIcon(QIcon());
@@ -117,6 +118,11 @@ SendMPDialog::SendMPDialog(QWidget *parent) :
     // initial update
     updateProperty();
     updateFrom();
+}
+
+void SendMPDialog::setModel(WalletModel *model)
+{
+    this->model = model;
 }
 
 void SendMPDialog::clearFields()
@@ -314,6 +320,17 @@ void SendMPDialog::sendMPTransaction()
         "The send transaction has been cancelled.\n\nPlease double-check the transction details thoroughly before retrying your send transaction." );
         return;
     }
+
+    // unlock the wallet - this segfaults - look into setting the walletmodel correctly
+    /*    WalletModel::UnlockContext ctx(model->requestUnlock());
+    if(!ctx.isValid())
+    {
+        // Unlock wallet was cancelled/failed
+        QMessageBox::critical( this, "Send transaction failed",
+        "The send transaction has been cancelled.\n\nThe wallet unlock process must be completed to send a transaction." );
+        return;
+    }
+    */
 
     // send the transaction
     int code = 0;
