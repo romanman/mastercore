@@ -122,13 +122,6 @@ Current Featureset:
 
 * CLI or config file option: referenceamount (see above in the installation section)
 
-Known Issues:
-----------------
-
-* Bug on fee calculation in gettransaction_MP 
-
-* gettransaction_MP output should include matched sell offer txid
-
 Pending additions:
 -------------------
 
@@ -139,6 +132,8 @@ Pending additions:
 * Dex support ( making offer, making accept, making payment)
 
 * Crowdsales ( issuing SP, fundraisers, changing currency, closing fundraisers)
+
+* gettransaction_MP output should include matched sell offer txid
 
 Support:
 ------------------
