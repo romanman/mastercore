@@ -121,6 +121,8 @@ Current Featureset:
 
 * Retreiving active and expired crowdsale information [doc] (https://github.com/mastercoin-MSC/mastercore/blob/michael-0921/doc/apidocumentation.md#retrieving-information-for-a-master-protocol-crowdsale)
 
+* CLI or config file option: referenceamount (see above in the installation section)
+
 Known Issues:
 ----------------
 
