@@ -74,20 +74,26 @@ Once complete
 ```
 cd src/
 ```
-and start Mastercore using ```./bitcoind -txindex ```. The inital parse step for a first time run
+and start Mastercore using ```./bitcoind```. The inital parse step for a first time run
 will take approximately 10-15 minutes, during this time your client will scan the blockchain for
 Master Protocol transactions. You can view the output of the parsing at any time by viewing the log
-located in ```/tmp/mastercore.log```.
+located in your datadir, usually: ```~/.bitcoin/mastercore.log```.
 
 If a message is returned asking you to reindex, pass the ```-reindex``` flag to bitcoind. The reindexing process can take serveral hours.
 
-Note: To avoid passing 'txindex' to the binary, you can use the sample bitcoin.conf (located in 
+A new Mastercore-specific option is available: ```-referenceamount```
+It would probably not be used by the majority of users.
+It allows the user to send the given amout of Bitcoins to the destination address (called reference in the spec), when applicable.
+E.g. -referenceamount=0.005
+Note: maximum amount that can be specified is limited to 0.01 BTC.
+
+Note: To avoid passing 'referenceamount' to the binary, you can use the sample bitcoin.conf (located in 
 ~/.bitcoin/ by default) to pass the option on load, avoiding the need for the CLI flag.
+Note: to issue RPC commands to Mastercore you may add the 'server' CLI flag to the conf file as well.
 
 In bitcoin.conf:
 ```
 server=1
-txindex=1
 ```
 
 After this step completes, check that the installation went smoothly by issuing the following
