@@ -262,15 +262,19 @@ void OverviewPage::setBalance(qint64 balance, qint64 unconfirmedBalance, qint64 
     //set smart property info
     if (spFound[1])
     {
+        // only need custom tokenLabel for SP1 since TMSC will always be first
+        string tokenLabel;
+        if (spName[1]=="Test MasterCoin (#2)") { tokenLabel = " TMSC"; } else { tokenLabel = " SPT"; }
+
         ui->SPname1->setText(spName[1].c_str());
         if (spDivisible[1])
         {
-            ui->SPbal1->setText(BitcoinUnits::format(0, spBal[1]).append(" SPT"));
+            ui->SPbal1->setText(BitcoinUnits::format(0, spBal[1]).append(QString::fromStdString(tokenLabel)));
         }
         else
         {
             string balText = static_cast<ostringstream*>( &(ostringstream() << spBal[1]) )->str();
-            balText += " SPT";
+            balText += tokenLabel;
             ui->SPbal1->setText(balText.c_str());
         }
     }
