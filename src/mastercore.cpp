@@ -2427,7 +2427,15 @@ static int selectCoins(const string &FromAddress, CCoinControl &coinControl)
         break;
     } // for iterate over the wallet end
 
-  return 0;
+//  return 0;
+if (n_max<=n_total) {return 0;} else {return -1;}
+}
+
+bool feeCheck(const string &address)
+{
+    // check the supplied address against selectCoins to determine if sufficient fees for send
+    CCoinControl coinControl;
+    if (0 > selectCoins(address, coinControl)) { return false; } else { return true; }
 }
 
 #define PUSH_BACK_BYTES(vector, value)\
