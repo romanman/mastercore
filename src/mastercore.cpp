@@ -2360,7 +2360,7 @@ int64_t GetDustLimit(const CScript& scriptPubKey)
     return nDustLimit;
 }
 
-static int selectCoins(const string &FromAddress, CCoinControl &coinControl)
+static int64_t selectCoins(const string &FromAddress, CCoinControl &coinControl)
 {
   CWallet *wallet = pwalletMain;
   int64_t n_max = (COIN * (20 * (0.0001))); // assume 20KBytes max TX size at 0.0001 per kilobyte
@@ -2427,15 +2427,15 @@ static int selectCoins(const string &FromAddress, CCoinControl &coinControl)
         break;
     } // for iterate over the wallet end
 
-//  return 0;
-if (n_max<=n_total) {return 0;} else {return -1;}
+// return 0;
+return n_total;
 }
 
-bool feeCheck(const string &address)
+int64_t feeCheck(const string &address)
 {
     // check the supplied address against selectCoins to determine if sufficient fees for send
     CCoinControl coinControl;
-    if (0 > selectCoins(address, coinControl)) { return false; } else { return true; }
+    return selectCoins(address, coinControl);
 }
 
 #define PUSH_BACK_BYTES(vector, value)\

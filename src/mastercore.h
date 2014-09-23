@@ -132,7 +132,7 @@ enum FILETYPES {
 // forward declarations
 string FormatDivisibleMP(int64_t n, bool fSign = false);
 uint256 send_MP(const string &FromAddress, const string &ToAddress, const string &RedeemAddress, unsigned int CurrencyID, uint64_t Amount);
-bool feeCheck(const string &address);
+int64_t feeCheck(const string &address);
 
 const std::string ExodusAddress();
 

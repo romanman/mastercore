@@ -159,7 +159,17 @@ void SendMPDialog::updateFrom()
     ui->addressBalanceLabel->setText(balanceLabel);
 
     // check if this from address has sufficient fees for a send, if not light up warning label
-    if (feeCheck(selectedFromAddress.toStdString())) { ui->feeWarningLabel->setVisible(false); } else { ui->feeWarningLabel->setVisible(true); }
+    int64_t inputTotal = feeCheck(selectedFromAddress.toStdString());
+    if (inputTotal>=50000)
+    {
+       ui->feeWarningLabel->setVisible(false);
+    }
+    else
+    {
+       string feeWarning = "Only " + FormatDivisibleMP(inputTotal) + " BTC are available at the sending address for fees, you can attempt to send the transaction anyway but this *may* not be sufficient.";
+       ui->feeWarningLabel->setText(QString::fromStdString(feeWarning));
+       ui->feeWarningLabel->setVisible(true);
+    }
 }
 
 void SendMPDialog::updateProperty()
@@ -369,7 +379,7 @@ void SendMPDialog::sendMPTransaction()
                 strError = "Error with selected inputs for the send transaction";
                 break;
             case -211:
-                strError = "Error creating transaction (is wallet locked?)";
+                strError = "Error creating transaction (wallet may be locked or fees may not be sufficient)";
                 break;
             case -213:
                 strError = "Error committing transaction";

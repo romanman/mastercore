@@ -228,7 +228,7 @@
             </font>
            </property>
            <property name="styleSheet">
-            <string notr="true">QLabel { color:red;} </string>
+            <string notr="true">QLabel { color:rgb(191, 127, 0);} </string>
            </property>
            <property name="text">
             <string>Warning: The sending address does not have enough BTC to cover the fees for this transaction.</string>
