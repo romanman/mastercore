@@ -101,16 +101,17 @@ Current Featureset:
 
 * Obtaining a Master Protocol balance [doc] (doc/apidocumentation.md#obtaining-a-master-protocol-balance)
 
-* Obtaining all MP (including Smart property) balances for an address [doc] (https://github.com/mastercoin-MSC/mastercore/blob/michael-0921/doc/apidocumentation.md#obtaining-all-master-protocol-balances-for-an-address)
+* Obtaining all MP (including Smart property) balances for an address [doc] (doc/apidocumentation.md#obtaining-all-master-protocol-balances-for-an-address)
 
-* Obtaining all balances for a specific Smart property ID [doc] (https://github.com/mastercoin-MSC/mastercore/blob/michael-0921/doc/apidocumentation.md#obtaining-all-master-protocol-balances-for-a-property-id)
+* Obtaining all balances for a specific Smart property ID [doc] (doc/apidocumentation.md#obtaining-all-master-protocol-balances-for-a-property-id)
 
-* Retrieving information about any Master Protocol Transaction [doc] (https://github.com/mastercoin-MSC/mastercore/blob/michael-0921/doc/apidocumentation.md#retrieving-a-master-protocol-transaction)
+* Retrieving information about any Master Protocol Transaction [doc] (doc/apidocumentation.md#retrieving-a-master-protocol-transaction)
 
-* Listing historical transactions of addresses in the wallet [doc] (https://github.com/mastercoin-MSC/mastercore/blob/michael-0921/doc/apidocumentation.md#listing-historical-transactions)                            
-* Retreiving MP information about a Smart Property [doc] (https://github.com/mastercoin-MSC/mastercore/blob/michael-0921/doc/apidocumentation.md#retrieving-information-about-a-master-protocol-property)
+* Listing historical transactions of addresses in the wallet [doc] (doc/apidocumentation.md#listing-historical-transactions)                            
 
-* Retreiving active and expired crowdsale information [doc] (https://github.com/mastercoin-MSC/mastercore/blob/michael-0921/doc/apidocumentation.md#retrieving-information-for-a-master-protocol-crowdsale)
+* Retreiving MP information about a Smart Property [doc] (doc/apidocumentation.md#retrieving-information-about-a-master-protocol-property)
+
+* Retreiving active and expired crowdsale information [doc] (doc/apidocumentation.md#retrieving-information-for-a-master-protocol-crowdsale)
 
 * Additional referenceamount in send_MP
 
