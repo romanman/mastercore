@@ -2564,13 +2564,26 @@ vector< pair<CScript, int64_t> > vecSend;
   // selected in the parent function, i.e.: ensure we are only using the address passed in as the Sender
   if (!coinControl.HasSelected()) return (CLASSB_SEND_ERROR -6);
 
-  LOCK(wallet->cs_wallet);  // TODO: is this needed?
+  LOCK(wallet->cs_wallet);
 
   // the fee will be computed by Bitcoin Core, need an override (?)
   // TODO: look at Bitcoin Core's global: nTransactionFee (?)
-  if (!wallet->CreateTransaction(vecSend, wtxNew, reserveKey, nFeeRet, strFailReason, &coinControl)) return (CLASSB_SEND_ERROR -11);
+  if (!wallet->CreateTransaction(vecSend, wtxNew, reserveKey, nFeeRet, strFailReason, &coinControl, false)) return (CLASSB_SEND_ERROR -11);
+
+  {
+  CTransaction tx;
+
+    tx = (CTransaction) wtxNew;
+
+    CDataStream ssTx(SER_NETWORK, PROTOCOL_VERSION);
+    ssTx << tx;
+    string strHex = HexStr(ssTx.begin(), ssTx.end());
+
+//    printf("%s\n", strHex.c_str());
+  }
 
   printf("%s():%s; nFeeRet = %lu, line %d, file: %s\n", __FUNCTION__, wtxNew.ToString().c_str(), nFeeRet, __LINE__, __FILE__);
+
 
   if (!wallet->CommitTransaction(wtxNew, reserveKey)) return (CLASSB_SEND_ERROR -13);
 

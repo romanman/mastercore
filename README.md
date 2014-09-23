@@ -81,15 +81,7 @@ located in your datadir, usually: ```~/.bitcoin/mastercore.log```.
 
 If a message is returned asking you to reindex, pass the ```-reindex``` flag to bitcoind. The reindexing process can take serveral hours.
 
-A new Mastercore-specific option is available: ```-referenceamount```
-It would probably not be used by the majority of users.
-It allows the user to send the given amout of Bitcoins to the destination address (called reference in the spec), when applicable.
-E.g. -referenceamount=0.005
-Note: maximum amount that can be specified is limited to 0.01 BTC.
-
-Note: To avoid passing 'referenceamount' to the binary, you can use the sample bitcoin.conf (located in 
-~/.bitcoin/ by default) to pass the option on load, avoiding the need for the CLI flag.
-Note: to issue RPC commands to Mastercore you may add the 'server' CLI flag to the conf file as well.
+Note: to issue RPC commands to Mastercore you may add the 'server' CLI flag to the bitcoin.conf file (located in ~/.bitcoin/ by default).
 
 In bitcoin.conf:
 ```
@@ -120,7 +112,7 @@ Current Featureset:
 
 * Retreiving active and expired crowdsale information [doc] (https://github.com/mastercoin-MSC/mastercore/blob/michael-0921/doc/apidocumentation.md#retrieving-information-for-a-master-protocol-crowdsale)
 
-* CLI or config file option: referenceamount (see above in the installation section)
+* Additional referenceamount in send_MP
 
 Pending additions:
 -------------------

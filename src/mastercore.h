@@ -140,7 +140,7 @@ extern int msc_debug_dex;
 
 extern CCriticalSection cs_tally;
 
-enum TallyType { MONEY = 0, SELLOFFER_RESERVE = 1, ACCEPT_RESERVE = 2, TALLY_TYPE_COUNT };
+enum TallyType { MONEY = 0, SELLOFFER_RESERVE = 1, ACCEPT_RESERVE = 2, PENDING = 3, TALLY_TYPE_COUNT };
 
 class CMPTally
 {
