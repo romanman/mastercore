@@ -191,11 +191,13 @@ public:
   bool bRet = false;
   int64_t now64;
 
+    if (TALLY_TYPE_COUNT <= ttype) return false;
+
     LOCK(cs_tally);
 
     now64 = mp_token[which_currency].balance[ttype];
 
-    if (0>(now64 + amount))
+    if ((PENDING != ttype) && (0>(now64 + amount)))
     {
     }
     else
@@ -220,22 +222,24 @@ public:
   uint64_t money = 0;
   uint64_t so_r = 0;
   uint64_t a_r = 0;
+  uint64_t pending = 0;
 
     if (propertyExists(which_currency))
     {
       money = mp_token[which_currency].balance[MONEY];
       so_r = mp_token[which_currency].balance[SELLOFFER_RESERVE];
       a_r = mp_token[which_currency].balance[ACCEPT_RESERVE];
+      pending = mp_token[which_currency].balance[PENDING];
     }
 
     if (bDivisible)
     {
-      printf("%22s [SO_RESERVE= %22s , ACCEPT_RESERVE= %22s ]\n",
-       FormatDivisibleMP(money).c_str(), FormatDivisibleMP(so_r).c_str(), FormatDivisibleMP(a_r).c_str());
+      printf("%22s [SO_RESERVE= %22s , ACCEPT_RESERVE= %22s ] %22s\n",
+       FormatDivisibleMP(money, true).c_str(), FormatDivisibleMP(so_r, true).c_str(), FormatDivisibleMP(a_r, true).c_str(), FormatDivisibleMP(pending, true).c_str());
     }
     else
     {
-      printf("%14lu [SO_RESERVE= %14lu , ACCEPT_RESERVE= %14lu ]\n", money, so_r, a_r);
+      printf("%14lu [SO_RESERVE= %14lu , ACCEPT_RESERVE= %14lu ] %14ld\n", money, so_r, a_r, pending);
     }
 
     return (money + so_r + a_r);
@@ -244,6 +248,8 @@ public:
   uint64_t getMoney(unsigned int which_currency, TallyType ttype)
   {
   uint64_t ret64 = 0;
+
+    if (TALLY_TYPE_COUNT <= ttype) return 0;
 
     LOCK(cs_tally);
 

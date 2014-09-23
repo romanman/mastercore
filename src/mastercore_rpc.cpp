@@ -242,6 +242,12 @@ if (fHelp || params.size() < 4 || params.size() > 6)
 
   if (0 != code) throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("error code= %i", code));
 
+  // support for pending, 0-confirm
+  if (update_tally_map(FromAddress, propertyId, -Amount, PENDING))
+  {
+    update_tally_map(ToAddress, propertyId, Amount, PENDING);
+  }
+
   //we need to do better than just returning a string of 0000000 here if we can't send the TX
   return newTX.GetHex();
 }

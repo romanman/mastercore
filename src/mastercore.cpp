@@ -52,7 +52,7 @@
 
 // comment out MY_HACK & others here - used for Unit Testing only !
 // #define MY_HACK
-// #define DISABLE_LOG_FILE 
+#define DISABLE_LOG_FILE 
 
 FILE *mp_fp = NULL;
 
@@ -341,7 +341,7 @@ return Amount;
 
 std::string mastercore::FormatIndivisibleMP(int64_t n)
 {
-  string str = strprintf("%lu", n);
+  string str = strprintf("%ld", n);
   return str;
 }
 
@@ -374,6 +374,8 @@ CMPTally *mastercore::getTally(const string & address)
 uint64_t getMPbalance(const string &Address, unsigned int currency, TallyType ttype)
 {
 uint64_t balance = 0;
+
+  if (TALLY_TYPE_COUNT <= ttype) return 0;
 
   LOCK(cs_tally);
 
