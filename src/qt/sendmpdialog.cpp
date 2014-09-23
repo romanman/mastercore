@@ -157,6 +157,9 @@ void SendMPDialog::updateFrom()
         balanceLabel = QString::fromStdString("Address Balance (Available): " + FormatIndivisibleMP(balanceAvailable) + tokenLabel);
     }
     ui->addressBalanceLabel->setText(balanceLabel);
+
+    // check if this from address has sufficient fees for a send, if not light up warning label
+    if (feeCheck(selectedFromAddress.toStdString())) { ui->feeWarningLabel->setVisible(false); } else { ui->feeWarningLabel->setVisible(true); }
 }
 
 void SendMPDialog::updateProperty()
@@ -338,9 +341,43 @@ void SendMPDialog::sendMPTransaction()
     if (0 != code)
     {
         string strCode = boost::lexical_cast<string>(code);
-        string strError = "";
+        string strError;
+        switch(code)
+        {
+            case -212:
+                strError = "Error choosing inputs for the send transaction";
+                break;
+            case -233:
+                strError = "Error with redemption address";
+                break;
+            case -220:
+                strError = "Error with redemption address key ID";
+                break;
+            case -221:
+                strError = "Error obtaining public key for redemption address";
+                break;
+            case -222:
+                strError = "Error public key for redemption address is not valid";
+                break;
+            case -223:
+                strError = "Error validating redemption address";
+                break;
+            case -205:
+                strError = "Error with wallet object";
+                break;
+            case -206:
+                strError = "Error with selected inputs for the send transaction";
+                break;
+            case -211:
+                strError = "Error creating transaction (is wallet locked?)";
+                break;
+            case -213:
+                strError = "Error committing transaction";
+                break;
+        }
+        if (strError.empty()) strError = "Error code does not have associated error text.";
         QMessageBox::critical( this, "Send transaction failed",
-        "The send transaction has failed.\n\nThe error code was " + QString::fromStdString(strCode) + "\nThe error message was " + QString::fromStdString(strError));
+        "The send transaction has failed.\n\nThe error code was: " + QString::fromStdString(strCode) + "\nThe error message was:\n" + QString::fromStdString(strError));
         return;
     }
     else
