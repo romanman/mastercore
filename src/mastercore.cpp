@@ -88,13 +88,11 @@ static int nWaterlineBlock = 0;  //
 static uint64_t exodus_prev = 0;
 static uint64_t exodus_balance;
 
-int64_t mastercore_referenceAmount = 0;
-
 static boost::filesystem::path MPPersistencePath;
 
 int msc_debug_parser_data = 0;
 int msc_debug_parser= 0;
-int msc_debug_verbose=1;
+int msc_debug_verbose=0;
 int msc_debug_verbose2=0;
 int msc_debug_vin   = 0;
 int msc_debug_script= 0;
@@ -117,6 +115,8 @@ static int mastercoreInitialized = 0;
 
 static int reorgRecoveryMode = 0;
 static int reorgRecoveryMaxHeight = 0;
+
+static bool bRawTX = false;
 
 // TODO: there would be a block height for each TX version -- rework together with BLOCKHEIGHTRESTRICTIONS above
 static const int txRestrictionsRules[][3] = {
@@ -2338,7 +2338,7 @@ int64_t GetDustLimit(const CScript& scriptPubKey)
     return nDustLimit;
 }
 
-static int selectCoins(const string &FromAddress, CCoinControl &coinControl)
+static int selectCoins(const string &FromAddress, CCoinControl &coinControl, int64_t additional)
 {
   CWallet *wallet = pwalletMain;
   int64_t n_max = (COIN * (20 * (0.0001))); // assume 20KBytes max TX size at 0.0001 per kilobyte
@@ -2346,7 +2346,7 @@ static int selectCoins(const string &FromAddress, CCoinControl &coinControl)
   int64_t n_total = 0;  // total output funds collected
 
   // if referenceamount is set it is needed to be accounted for here too
-  if (0 < mastercore_referenceAmount) n_max += mastercore_referenceAmount;
+  if (0 < additional) n_max += additional;
 
   LOCK(wallet->cs_wallet);
 
@@ -2418,14 +2418,14 @@ static int selectCoins(const string &FromAddress, CCoinControl &coinControl)
 //
 // Do we care if this is true: pubkeys[i].IsCompressed() ???
 // returns 0 if everything is OK, the transaction was sent
-int mastercore::ClassB_send(const string &senderAddress, const string &receiverAddress, const string &redemptionAddress, const vector<unsigned char> &data, uint256 & txid)
+int mastercore::ClassB_send(const string &senderAddress, const string &receiverAddress, const string &redemptionAddress, const vector<unsigned char> &data, uint256 & txid, int64_t referenceamount)
 {
 CWallet *wallet = pwalletMain;
 CCoinControl coinControl;
 vector< pair<CScript, int64_t> > vecSend;
 
   // pick inputs for this transaction
-  if (0 > selectCoins(senderAddress, coinControl))
+  if (0 > selectCoins(senderAddress, coinControl, referenceamount))
   {
     return (CLASSB_SEND_ERROR -12);
   }
@@ -2457,12 +2457,14 @@ vector< pair<CScript, int64_t> > vecSend;
       if (!address.GetKeyID(keyID))
         return (CLASSB_SEND_ERROR -20);
 
+      if (!bRawTX)
+      {
       if (!wallet->GetPubKey(keyID, redeemingPubKey))
         return (CLASSB_SEND_ERROR -21);
 
       if (!redeemingPubKey.IsFullyValid())
         return (CLASSB_SEND_ERROR -22);
-
+      }
      }
   }
   else return (CLASSB_SEND_ERROR -23);
@@ -2554,7 +2556,7 @@ vector< pair<CScript, int64_t> > vecSend;
   {
     // Send To Owners is the first use case where the receiver is empty
     scriptPubKey.SetDestination(CBitcoinAddress(receiverAddress).Get());
-    vecSend.push_back(make_pair(scriptPubKey, 0 < mastercore_referenceAmount ? mastercore_referenceAmount: GetDustLimit(scriptPubKey)));
+    vecSend.push_back(make_pair(scriptPubKey, 0 < referenceamount ? referenceamount : GetDustLimit(scriptPubKey)));
   }
 
   // add the marker output
@@ -2568,22 +2570,20 @@ vector< pair<CScript, int64_t> > vecSend;
 
   // the fee will be computed by Bitcoin Core, need an override (?)
   // TODO: look at Bitcoin Core's global: nTransactionFee (?)
-  if (!wallet->CreateTransaction(vecSend, wtxNew, reserveKey, nFeeRet, strFailReason, &coinControl, false)) return (CLASSB_SEND_ERROR -11);
+  if (!wallet->CreateTransaction(vecSend, wtxNew, reserveKey, nFeeRet, strFailReason, &coinControl, bRawTX)) return (CLASSB_SEND_ERROR -11);
 
+  if (bRawTX)
   {
-  CTransaction tx;
-
-    tx = (CTransaction) wtxNew;
-
+    CTransaction tx = (CTransaction) wtxNew;
     CDataStream ssTx(SER_NETWORK, PROTOCOL_VERSION);
     ssTx << tx;
     string strHex = HexStr(ssTx.begin(), ssTx.end());
+    printf("RawTX:\n%s\n\n", strHex.c_str());
 
-//    printf("%s\n", strHex.c_str());
+    return 0;
   }
 
   printf("%s():%s; nFeeRet = %lu, line %d, file: %s\n", __FUNCTION__, wtxNew.ToString().c_str(), nFeeRet, __LINE__, __FILE__);
-
 
   if (!wallet->CommitTransaction(wtxNew, reserveKey)) return (CLASSB_SEND_ERROR -13);
 
@@ -2593,7 +2593,7 @@ vector< pair<CScript, int64_t> > vecSend;
 }
 
 // WIP: expanding the function to a general-purpose one, but still sending 1 packet only for now (30-31 bytes)
-uint256 mastercore::send_INTERNAL_1packet(const string &FromAddress, const string &ToAddress, const string &RedeemAddress, unsigned int CurrencyID, uint64_t Amount, unsigned int TransactionType, int *error_code)
+uint256 mastercore::send_INTERNAL_1packet(const string &FromAddress, const string &ToAddress, const string &RedeemAddress, unsigned int CurrencyID, uint64_t Amount, unsigned int TransactionType, int64_t additional, int *error_code)
 {
 const uint64_t nAvailable = getMPbalance(FromAddress, CurrencyID, MONEY);
 int rc = -1;
@@ -2622,7 +2622,7 @@ uint256 txid = 0;
   PUSH_BACK_BYTES(data, CurrencyID);
   PUSH_BACK_BYTES(data, Amount);
 
-  rc = ClassB_send(FromAddress, ToAddress, RedeemAddress, data, txid);
+  rc = ClassB_send(FromAddress, ToAddress, RedeemAddress, data, txid, additional);
   if (msc_debug_send) fprintf(mp_fp, "ClassB_send returned %d\n", rc);
 
   if (error_code) *error_code = rc;

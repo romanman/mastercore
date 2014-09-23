@@ -97,9 +97,9 @@ additional information related to the Bitcoin Network.
 Current Featureset:
 --------------------
 
-* Broadcasting of simple send (tx0), and send to owners (tx3) [doc] (https://github.com/mastercoin-MSC/mastercore/blob/michael-0921/doc/apidocumentation.md#broadcasting-a-simple-send-transaction)
+* Broadcasting of simple send (tx0), and send to owners (tx3) [doc] (doc/apidocumentation.md#broadcasting-a-simple-send-transaction)
 
-* Obtaining a Master Protocol balance [doc] (https://github.com/mastercoin-MSC/mastercore/blob/michael-0921/doc/apidocumentation.md#obtaining-a-master-protocol-balance)
+* Obtaining a Master Protocol balance [doc] (doc/apidocumentation.md#obtaining-a-master-protocol-balance)
 
 * Obtaining all MP (including Smart property) balances for an address [doc] (https://github.com/mastercoin-MSC/mastercore/blob/michael-0921/doc/apidocumentation.md#obtaining-all-master-protocol-balances-for-an-address)
 
