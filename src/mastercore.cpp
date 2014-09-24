@@ -52,7 +52,7 @@
 
 // comment out MY_HACK & others here - used for Unit Testing only !
 // #define MY_HACK
-#define DISABLE_LOG_FILE 
+// #define DISABLE_LOG_FILE 
 
 FILE *mp_fp = NULL;
 
