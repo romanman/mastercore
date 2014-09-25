@@ -221,6 +221,11 @@ BITCOIN_QT_H = \
   winshutdownmonitor.h
 
 RES_ICONS = \
+  res/icons/mp_balances.png \
+  res/icons/mp_history.png \
+  res/icons/mp_home.png \
+  res/icons/mp_receive.png \
+  res/icons/mp_send.png \
   res/icons/add.png \
   res/icons/address-book.png \
   res/icons/bitcoin.ico \
