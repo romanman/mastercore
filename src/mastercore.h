@@ -142,14 +142,14 @@ extern int msc_debug_dex;
 
 extern CCriticalSection cs_tally;
 
-enum TallyType { MONEY = 0, SELLOFFER_RESERVE = 1, ACCEPT_RESERVE = 2, TALLY_TYPE_COUNT };
+enum TallyType { MONEY = 0, SELLOFFER_RESERVE = 1, ACCEPT_RESERVE = 2, PENDING = 3, TALLY_TYPE_COUNT };
 
 class CMPTally
 {
 private:
 typedef struct
 {
-  uint64_t balance[TALLY_TYPE_COUNT];
+  int64_t balance[TALLY_TYPE_COUNT];
 } BalanceRecord;
 
   typedef std::map<unsigned int, BalanceRecord> TokenMap;
@@ -193,11 +193,13 @@ public:
   bool bRet = false;
   int64_t now64;
 
+    if (TALLY_TYPE_COUNT <= ttype) return false;
+
     LOCK(cs_tally);
 
     now64 = mp_token[which_currency].balance[ttype];
 
-    if (0>(now64 + amount))
+    if ((PENDING != ttype) && (0>(now64 + amount)))
     {
     }
     else
@@ -217,35 +219,39 @@ public:
     my_it = mp_token.begin();
   }
 
-  uint64_t print(int which_currency = MASTERCOIN_CURRENCY_MSC, bool bDivisible = true)
+  int64_t print(int which_currency = MASTERCOIN_CURRENCY_MSC, bool bDivisible = true)
   {
-  uint64_t money = 0;
-  uint64_t so_r = 0;
-  uint64_t a_r = 0;
+  int64_t money = 0;
+  int64_t so_r = 0;
+  int64_t a_r = 0;
+  int64_t pending = 0;
 
     if (propertyExists(which_currency))
     {
       money = mp_token[which_currency].balance[MONEY];
       so_r = mp_token[which_currency].balance[SELLOFFER_RESERVE];
       a_r = mp_token[which_currency].balance[ACCEPT_RESERVE];
+      pending = mp_token[which_currency].balance[PENDING];
     }
 
     if (bDivisible)
     {
-      printf("%22s [SO_RESERVE= %22s , ACCEPT_RESERVE= %22s ]\n",
-       FormatDivisibleMP(money).c_str(), FormatDivisibleMP(so_r).c_str(), FormatDivisibleMP(a_r).c_str());
+      printf("%22s [SO_RESERVE= %22s , ACCEPT_RESERVE= %22s ] %22s\n",
+       FormatDivisibleMP(money, true).c_str(), FormatDivisibleMP(so_r, true).c_str(), FormatDivisibleMP(a_r, true).c_str(), FormatDivisibleMP(pending, true).c_str());
     }
     else
     {
-      printf("%14lu [SO_RESERVE= %14lu , ACCEPT_RESERVE= %14lu ]\n", money, so_r, a_r);
+      printf("%14lu [SO_RESERVE= %14lu , ACCEPT_RESERVE= %14lu ] %14ld\n", money, so_r, a_r, pending);
     }
 
     return (money + so_r + a_r);
   }
 
-  uint64_t getMoney(unsigned int which_currency, TallyType ttype)
+  int64_t getMoney(unsigned int which_currency, TallyType ttype)
   {
-  uint64_t ret64 = 0;
+  int64_t ret64 = 0;
+
+    if (TALLY_TYPE_COUNT <= ttype) return 0;
 
     LOCK(cs_tally);
 
@@ -318,6 +324,20 @@ public:
     bool isMPinBlockRange(int, int, bool);
 };
 
+class CMPPending
+{
+public:
+  string src;
+  string dest;
+  unsigned int curr;
+  int64_t amount;
+
+  void print(uint256 txid) const
+  {
+    printf("%s : %s %s %d %ld\n", txid.GetHex().c_str(), src.c_str(), dest.c_str(), curr, amount);
+  }
+};
+
 extern uint64_t global_MSC_total;
 extern uint64_t global_MSC_RESERVED_total;
 //temp - only supporting 100,000 properties per eco here, research best way to expand array
@@ -329,7 +349,7 @@ extern uint64_t global_balance_reserved_testeco[100000];
 
 int mastercore_init(void);
 
-uint64_t getMPbalance(const string &Address, unsigned int currency, TallyType ttype);
+int64_t getMPbalance(const string &Address, unsigned int currency, TallyType ttype);
 bool IsMyAddress(const std::string &address);
 
 string getLabel(const string &address);
@@ -354,6 +374,11 @@ namespace mastercore
 extern std::map<string, CMPTally> mp_tally_map;
 extern CMPTxList *p_txlistdb;
 
+typedef std::map<uint256, CMPPending> PendingMap;
+
+extern PendingMap my_pending;
+int pendingAdd(const uint256 &txid, const CMPPending &pend);
+
 string strMPCurrency(unsigned int i);
 
 int GetHeight(void);
@@ -364,9 +389,10 @@ bool isCrowdsalePurchase(uint256 txid, string address, int64_t *propertyId = NUL
 bool isMPinBlockRange(int starting_block, int ending_block, bool bDeleteFound);
 std::string FormatIndivisibleMP(int64_t n);
 
-int ClassB_send(const string &senderAddress, const string &receiverAddress, const string &redemptionAddress, const vector<unsigned char> &data, uint256 & txid);
+int ClassB_send(const string &senderAddress, const string &receiverAddress, const string &redemptionAddress, const vector<unsigned char> &data, uint256 & txid, int64_t additional = 0);
 
-uint256 send_INTERNAL_1packet(const string &FromAddress, const string &ToAddress, const string &RedeemAddress, unsigned int CurrencyID, uint64_t Amount, unsigned int TransactionType, int *error_code = NULL);
+uint256 send_INTERNAL_1packet(const string &FromAddress, const string &ToAddress, const string &RedeemAddress, unsigned int CurrencyID, uint64_t Amount,
+ unsigned int TransactionType, int64_t additional, int *error_code = NULL);
 
 bool isTestEcosystemProperty(unsigned int property);
 int64_t strToInt64(std::string strAmount, bool divisible);

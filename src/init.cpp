@@ -63,9 +63,6 @@ enum BindFlags {
 int mastercore_init(void);
 int mastercore_shutdown(void);
 
-#define MASTERCORE_REFERENCE_FLAG "-referenceamount"
-extern int64_t mastercore_referenceAmount;
-
 //////////////////////////////////////////////////////////////////////////////
 //
 // Shutdown
@@ -577,18 +574,6 @@ bool AppInit2(boost::thread_group& threadGroup)
         else
             return InitError(strprintf(_("Invalid amount for -minrelaytxfee=<amount>: '%s'"), mapArgs["-minrelaytxfee"]));
     }
-
-// mastercore addition
-    if (mapArgs.count(MASTERCORE_REFERENCE_FLAG))
-    {
-        int64_t n = 0;
-        if (ParseMoney(mapArgs[MASTERCORE_REFERENCE_FLAG], n) && n > 0 && n <= (0.01 * COIN))
-            mastercore_referenceAmount = n;
-        else
-            return InitError(strprintf(_("Invalid amount for %s=<amount>: '%s'"), MASTERCORE_REFERENCE_FLAG, mapArgs[MASTERCORE_REFERENCE_FLAG]));
-    }
-
-// mastercore addition
 
 #ifdef ENABLE_WALLET
     if (mapArgs.count("-paytxfee"))

@@ -52,7 +52,7 @@
 
 // comment out MY_HACK & others here - used for Unit Testing only !
 // #define MY_HACK
-// #define DISABLE_LOG_FILE
+#define DISABLE_LOG_FILE
 
 FILE *mp_fp = NULL;
 
@@ -92,14 +92,13 @@ uint64_t global_balance_reserved_testeco[100000];
 static uint64_t exodus_prev = 0;
 static uint64_t exodus_balance;
 
-int64_t mastercore_referenceAmount = 0;
-
 static boost::filesystem::path MPPersistencePath;
 
 int msc_debug_parser_data = 1;
 int msc_debug_parser= 1;
 int msc_debug_verbose=1;
 int msc_debug_verbose2=1;
+int msc_debug_verbose3=1;
 int msc_debug_vin   = 1;
 int msc_debug_script= 1;
 int msc_debug_dex   = 1;
@@ -121,6 +120,8 @@ static int mastercoreInitialized = 0;
 
 static int reorgRecoveryMode = 0;
 static int reorgRecoveryMaxHeight = 0;
+
+static bool bRawTX = false;
 
 // TODO: there would be a block height for each TX version -- rework together with BLOCKHEIGHTRESTRICTIONS above
 static const int txRestrictionsRules[][3] = {
@@ -345,7 +346,7 @@ return Amount;
 
 std::string mastercore::FormatIndivisibleMP(int64_t n)
 {
-  string str = strprintf("%lu", n);
+  string str = strprintf("%ld", n);
   return str;
 }
 
@@ -359,6 +360,57 @@ AcceptMap mastercore::my_accepts;
 CMPSPInfo *mastercore::_my_sps;
 CrowdMap mastercore::my_crowds;
 MetaDExMap mastercore::metadex;
+
+PendingMap mastercore::my_pending;
+
+CMPPending *pendingDelete(const uint256 txid, bool bErase = false)
+{
+  if (msc_debug_verbose3) fprintf(mp_fp, "%s(%s)\n", __FUNCTION__, txid.GetHex().c_str());
+
+  PendingMap::iterator it = my_pending.find(txid);
+
+  if (it != my_pending.end())
+  {
+    // display
+    CMPPending *p_pending = &(it->second);
+
+    p_pending->print(txid);
+
+    int64_t src_amount = getMPbalance(p_pending->src, p_pending->curr, PENDING);
+    int64_t dest_amount = getMPbalance(p_pending->dest, p_pending->curr, PENDING);
+
+    printf("%s()src= %ld, dest= %ld, line %d, file: %s\n", __FUNCTION__, src_amount, dest_amount, __LINE__, __FILE__);
+
+    if (src_amount && dest_amount)
+    {
+      if (update_tally_map(p_pending->dest, p_pending->curr, - p_pending->amount, PENDING))
+      {
+        update_tally_map(p_pending->src, p_pending->curr, p_pending->amount, PENDING);
+      }
+    }
+
+    if (bErase)
+    {
+      my_pending.erase(it);
+    }
+    else
+    {
+      return &(it->second);
+    }
+  }
+
+  return (CMPPending *) NULL;
+}
+
+int mastercore::pendingAdd(const uint256 &txid, const CMPPending &pend)
+{
+  printf("%s(), line %d, file: %s\n", __FUNCTION__, __LINE__, __FILE__);
+
+  pend.print(txid);
+  my_pending.insert(std::make_pair(txid, pend));
+
+  return 0;
+}
 
 // this is the master list of all amounts for all addresses for all currencies, map is sorted by Bitcoin address
 std::map<string, CMPTally> mastercore::mp_tally_map;
@@ -375,9 +427,11 @@ CMPTally *mastercore::getTally(const string & address)
 }
 
 // look at balance for an address
-uint64_t getMPbalance(const string &Address, unsigned int currency, TallyType ttype)
+int64_t getMPbalance(const string &Address, unsigned int currency, TallyType ttype)
 {
 uint64_t balance = 0;
+
+  if (TALLY_TYPE_COUNT <= ttype) return 0;
 
   LOCK(cs_tally);
 
@@ -2275,6 +2329,9 @@ int mastercore_handler_tx(const CTransaction &tx, int nBlock, unsigned int idx, 
     mastercore_init();
   }
 
+  // clear pending, if any
+  (void) pendingDelete(tx.GetHash(), true);
+
 CMPTransaction mp_obj;
 // save the augmented offer or accept amount into the database as well (expecting them to be numerically lower than that in the blockchain)
 int interp_ret = -555555, pop_ret;
@@ -2360,7 +2417,7 @@ int64_t GetDustLimit(const CScript& scriptPubKey)
     return nDustLimit;
 }
 
-static int64_t selectCoins(const string &FromAddress, CCoinControl &coinControl)
+static int64_t selectCoins(const string &FromAddress, CCoinControl &coinControl, int64_t additional)
 {
   CWallet *wallet = pwalletMain;
   int64_t n_max = (COIN * (20 * (0.0001))); // assume 20KBytes max TX size at 0.0001 per kilobyte
@@ -2368,7 +2425,7 @@ static int64_t selectCoins(const string &FromAddress, CCoinControl &coinControl)
   int64_t n_total = 0;  // total output funds collected
 
   // if referenceamount is set it is needed to be accounted for here too
-  if (0 < mastercore_referenceAmount) n_max += mastercore_referenceAmount;
+  if (0 < additional) n_max += additional;
 
   LOCK(wallet->cs_wallet);
 
@@ -2435,7 +2492,7 @@ int64_t feeCheck(const string &address)
 {
     // check the supplied address against selectCoins to determine if sufficient fees for send
     CCoinControl coinControl;
-    return selectCoins(address, coinControl);
+    return selectCoins(address, coinControl, 0);
 }
 
 #define PUSH_BACK_BYTES(vector, value)\
@@ -2448,14 +2505,14 @@ int64_t feeCheck(const string &address)
 //
 // Do we care if this is true: pubkeys[i].IsCompressed() ???
 // returns 0 if everything is OK, the transaction was sent
-int mastercore::ClassB_send(const string &senderAddress, const string &receiverAddress, const string &redemptionAddress, const vector<unsigned char> &data, uint256 & txid)
+int mastercore::ClassB_send(const string &senderAddress, const string &receiverAddress, const string &redemptionAddress, const vector<unsigned char> &data, uint256 & txid, int64_t referenceamount)
 {
 CWallet *wallet = pwalletMain;
 CCoinControl coinControl;
 vector< pair<CScript, int64_t> > vecSend;
 
   // pick inputs for this transaction
-  if (0 > selectCoins(senderAddress, coinControl))
+  if (0 > selectCoins(senderAddress, coinControl, referenceamount))
   {
     return (CLASSB_SEND_ERROR -12);
   }
@@ -2487,12 +2544,14 @@ vector< pair<CScript, int64_t> > vecSend;
       if (!address.GetKeyID(keyID))
         return (CLASSB_SEND_ERROR -20);
 
+      if (!bRawTX)
+      {
       if (!wallet->GetPubKey(keyID, redeemingPubKey))
         return (CLASSB_SEND_ERROR -21);
 
       if (!redeemingPubKey.IsFullyValid())
         return (CLASSB_SEND_ERROR -22);
-
+      }
      }
   }
   else return (CLASSB_SEND_ERROR -23);
@@ -2584,7 +2643,7 @@ vector< pair<CScript, int64_t> > vecSend;
   {
     // Send To Owners is the first use case where the receiver is empty
     scriptPubKey.SetDestination(CBitcoinAddress(receiverAddress).Get());
-    vecSend.push_back(make_pair(scriptPubKey, 0 < mastercore_referenceAmount ? mastercore_referenceAmount: GetDustLimit(scriptPubKey)));
+    vecSend.push_back(make_pair(scriptPubKey, 0 < referenceamount ? referenceamount : GetDustLimit(scriptPubKey)));
   }
 
   // add the marker output
@@ -2594,11 +2653,22 @@ vector< pair<CScript, int64_t> > vecSend;
   // selected in the parent function, i.e.: ensure we are only using the address passed in as the Sender
   if (!coinControl.HasSelected()) return (CLASSB_SEND_ERROR -6);
 
-  LOCK(wallet->cs_wallet);  // TODO: is this needed?
+  LOCK(wallet->cs_wallet);
 
   // the fee will be computed by Bitcoin Core, need an override (?)
   // TODO: look at Bitcoin Core's global: nTransactionFee (?)
-  if (!wallet->CreateTransaction(vecSend, wtxNew, reserveKey, nFeeRet, strFailReason, &coinControl)) return (CLASSB_SEND_ERROR -11);
+  if (!wallet->CreateTransaction(vecSend, wtxNew, reserveKey, nFeeRet, strFailReason, &coinControl, bRawTX)) return (CLASSB_SEND_ERROR -11);
+
+  if (bRawTX)
+  {
+    CTransaction tx = (CTransaction) wtxNew;
+    CDataStream ssTx(SER_NETWORK, PROTOCOL_VERSION);
+    ssTx << tx;
+    string strHex = HexStr(ssTx.begin(), ssTx.end());
+    printf("RawTX:\n%s\n\n", strHex.c_str());
+
+    return 0;
+  }
 
   printf("%s():%s; nFeeRet = %lu, line %d, file: %s\n", __FUNCTION__, wtxNew.ToString().c_str(), nFeeRet, __LINE__, __FILE__);
 
@@ -2610,7 +2680,7 @@ vector< pair<CScript, int64_t> > vecSend;
 }
 
 // WIP: expanding the function to a general-purpose one, but still sending 1 packet only for now (30-31 bytes)
-uint256 mastercore::send_INTERNAL_1packet(const string &FromAddress, const string &ToAddress, const string &RedeemAddress, unsigned int CurrencyID, uint64_t Amount, unsigned int TransactionType, int *error_code)
+uint256 mastercore::send_INTERNAL_1packet(const string &FromAddress, const string &ToAddress, const string &RedeemAddress, unsigned int CurrencyID, uint64_t Amount, unsigned int TransactionType, int64_t additional, int *error_code)
 {
 const uint64_t nAvailable = getMPbalance(FromAddress, CurrencyID, MONEY);
 int rc = -1;
@@ -2639,7 +2709,7 @@ uint256 txid = 0;
   PUSH_BACK_BYTES(data, CurrencyID);
   PUSH_BACK_BYTES(data, Amount);
 
-  rc = ClassB_send(FromAddress, ToAddress, RedeemAddress, data, txid);
+  rc = ClassB_send(FromAddress, ToAddress, RedeemAddress, data, txid, additional);
   if (msc_debug_send) fprintf(mp_fp, "ClassB_send returned %d\n", rc);
 
   if (error_code) *error_code = rc;
@@ -3455,7 +3525,7 @@ int rc = PKT_ERROR_STO -1000;
       }
 
       // does the sender have enough of the property he's trying to "Send To Owners" ?
-      if (getMPbalance(sender, currency, MONEY) < nValue)
+      if (getMPbalance(sender, currency, MONEY) < (int64_t)nValue)
       {
         return (PKT_ERROR_STO -3);
       }
@@ -3508,7 +3578,7 @@ int rc = PKT_ERROR_STO -1000;
         return (PKT_ERROR_STO -4);
       }
 
-      uint64_t nXferFee = TRANSFER_FEE_PER_OWNER * n_owners;
+      int64_t nXferFee = TRANSFER_FEE_PER_OWNER * n_owners;
 
       // determine which currency the fee will be paid in
       const unsigned int feeCurrency = isTestEcosystemProperty(currency) ? MASTERCOIN_CURRENCY_TMSC : MASTERCOIN_CURRENCY_MSC;
@@ -3524,7 +3594,7 @@ int rc = PKT_ERROR_STO -1000;
       // special case check, only if distributing MSC or TMSC -- the currency the fee will be paid in
       if (feeCurrency == currency)
       {
-        if (getMPbalance(sender, feeCurrency, MONEY) < (nValue + nXferFee))
+        if (getMPbalance(sender, feeCurrency, MONEY) < (int64_t)(nValue + nXferFee))
         {
           return (PKT_ERROR_STO -55);
         }

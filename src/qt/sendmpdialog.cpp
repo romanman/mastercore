@@ -344,9 +344,9 @@ void SendMPDialog::sendMPTransaction()
         return;
     }
 
-    // send the transaction
+    // send the transaction - UI will not send any extra reference amounts at this stage
     int code = 0;
-    uint256 sendTXID = send_INTERNAL_1packet(fromAddress.ToString(), refAddress.ToString(), fromAddress.ToString(), propertyId, sendAmount, MSC_TYPE_SIMPLE_SEND, &code);
+    uint256 sendTXID = send_INTERNAL_1packet(fromAddress.ToString(), refAddress.ToString(), fromAddress.ToString(), propertyId, sendAmount, MSC_TYPE_SIMPLE_SEND, 0, &code);
     if (0 != code)
     {
         string strCode = boost::lexical_cast<string>(code);
