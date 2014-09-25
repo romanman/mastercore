@@ -449,6 +449,19 @@ const map<string, CMPTally>::iterator my_it = mp_tally_map.find(Address);
   return balance;
 }
 
+int64_t getUserAvailableMPbalance(const string &Address, unsigned int currency)
+{
+int64_t money = getMPbalance(Address, currency, MONEY);
+int64_t pending = getMPbalance(Address, currency, PENDING);
+
+  if (0 > pending)
+  {
+    return (money + pending); // show the decrease in money available
+  }
+
+  return money;
+}
+
 // returns false if we are out of range and/or overflow
 // call just before multiplying large numbers
 bool isMultiplicationOK(const uint64_t a, const uint64_t b)
