@@ -342,6 +342,7 @@ extern uint64_t global_MSC_RESERVED_total;
 int mastercore_init(void);
 
 int64_t getMPbalance(const string &Address, unsigned int currency, TallyType ttype);
+int64_t getUserAvailableMPbalance(const string &Address, unsigned int currency);
 bool IsMyAddress(const std::string &address);
 
 string getLabel(const string &address);
