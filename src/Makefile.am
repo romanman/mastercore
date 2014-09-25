@@ -39,6 +39,9 @@ BITCOIN_CORE_H = \
   compat.h \
   core.h \
   mastercore.h \
+  mastercore_tx.h \
+  mastercore_dex.h \
+  mastercore_sp.h \
   crypter.h \
   db.h \
   hash.h \
