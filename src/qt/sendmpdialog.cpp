@@ -142,7 +142,8 @@ void SendMPDialog::updateFrom()
     LOCK(cs_tally);
     QString selectedFromAddress = ui->sendFromComboBox->currentText();
     std::string stdSelectedFromAddress = selectedFromAddress.toStdString();
-    int64_t balanceAvailable = getMPbalance(stdSelectedFromAddress, propertyId, MONEY);
+    //int64_t balanceAvailable = getMPbalance(stdSelectedFromAddress, propertyId, MONEY);
+    int64_t balanceAvailable = getUserAvailableMPbalance(stdSelectedFromAddress, propertyId);
     QString balanceLabel;
     std::string tokenLabel;
     if (propertyId==1) tokenLabel = " MSC";
@@ -209,7 +210,8 @@ void SendMPDialog::updateProperty()
     // populate balance for currently selected address and global wallet balance
     QString selectedFromAddress = ui->sendFromComboBox->currentText();
     std::string stdSelectedFromAddress = selectedFromAddress.toStdString();
-    int64_t balanceAvailable = getMPbalance(stdSelectedFromAddress, propertyId, MONEY);
+    //int64_t balanceAvailable = getMPbalance(stdSelectedFromAddress, propertyId, MONEY);
+    int64_t balanceAvailable = getUserAvailableMPbalance(stdSelectedFromAddress, propertyId);
     int64_t globalAvailable = 0;
     if (propertyId<2147483648) { globalAvailable = global_balance_money_maineco[propertyId]; } else { globalAvailable = global_balance_money_testeco[propertyId-2147483647]; }
     QString balanceLabel;
@@ -306,7 +308,7 @@ void SendMPDialog::sendMPTransaction()
     }
 
     // check if sending address has enough funds
-    int64_t balanceAvailable = getMPbalance(fromAddress.ToString(), propertyId, MONEY);
+    int64_t balanceAvailable = getMPbalance(fromAddress.ToString(), propertyId, MONEY); // not changing to getUserAvailableMPbalance as this is a send validation
     if (sendAmount>balanceAvailable)
     {
         QMessageBox::critical( this, "Unable to send transaction",

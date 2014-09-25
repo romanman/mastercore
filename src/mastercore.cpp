@@ -180,9 +180,7 @@ static void ShrinkMasterCoreDebugFile()
     // Scroll log if it's getting too big
 #ifndef  DISABLE_LOG_FILE
     boost::filesystem::path pathLog = GetDataDir() / LOG_FILENAME;
-printf("set shrink path ok\n");
     FILE* file = fopen(pathLog.string().c_str(), "r");
-printf("opened shrink log ok\n");
     if (file && boost::filesystem::file_size(pathLog) > 50 * 1000000) // 50 MBytes
     {
         // Restart the file with some of the end
@@ -190,18 +188,15 @@ printf("opened shrink log ok\n");
         fseek(file, -sizeof(pch), SEEK_END);
         int nBytes = fread(pch, 1, sizeof(pch), file);
         fclose(file);
-printf("seeked and closed shrink log ok\n");
         file = fopen(pathLog.string().c_str(), "w");
         if (file)
         {
             fwrite(pch, 1, nBytes, file);
             fclose(file);
         }
-printf("wrote and closed ok\n");
     }
     else if (file != NULL)
         fclose(file);
-printf("reached end of shrink ok\n");
 #endif
 }
 
@@ -815,13 +810,15 @@ int mastercore::set_wallet_totals()
     {
        for (propertyId = 1; propertyId<nextSPID; propertyId++) //main eco
        {
-              global_balance_money_maineco[propertyId] += getMPbalance(my_it->first, propertyId, MONEY);
+              //global_balance_money_maineco[propertyId] += getMPbalance(my_it->first, propertyId, MONEY);
+              global_balance_money_maineco[propertyId] += getUserAvailableMPbalance(my_it->first, propertyId);
               global_balance_reserved_maineco[propertyId] += getMPbalance(my_it->first, propertyId, SELLOFFER_RESERVE);
               if (propertyId < 3) global_balance_reserved_maineco[propertyId] += getMPbalance(my_it->first, propertyId, ACCEPT_RESERVE);
        }
        for (propertyId = TEST_ECO_PROPERTY_1; propertyId<nextTestSPID; propertyId++) //test eco
        {
-              global_balance_money_testeco[propertyId-2147483647] += getMPbalance(my_it->first, propertyId, MONEY);
+              //global_balance_money_testeco[propertyId-2147483647] += getMPbalance(my_it->first, propertyId, MONEY);
+              global_balance_money_testeco[propertyId-2147483647] += getUserAvailableMPbalance(my_it->first, propertyId);
               global_balance_reserved_testeco[propertyId-2147483647] += getMPbalance(my_it->first, propertyId, SELLOFFER_RESERVE);
        }
     }
@@ -2179,15 +2176,11 @@ int mastercore_init()
   }
 
   printf("%s()%s, line %d, file: %s\n", __FUNCTION__, isNonMainNet() ? "TESTNET":"", __LINE__, __FILE__);
-  printf("Entering shrink\n");
   ShrinkMasterCoreDebugFile();
-  printf("Finished shrink\n");
 
 #ifndef  DISABLE_LOG_FILE
   boost::filesystem::path pathTempLog = GetDataDir() / LOG_FILENAME;
-  printf("Set path ok\n");
   mp_fp = fopen(pathTempLog.string().c_str(), "a");
-  printf("Opened log ok\n");
 #else
   mp_fp = stdout;
 #endif

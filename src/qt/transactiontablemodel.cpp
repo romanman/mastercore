@@ -951,7 +951,8 @@ int MatrixModel::fillin(unsigned int propertyId)
             if (!includeAddress) continue; //ignore this address, has never transacted in this propertyId
             if (!IsMyAddress(address)) continue; //ignore this address, it's not ours
 
-            int64_t available = getMPbalance(address, propertyId, MONEY);
+            //int64_t available = getMPbalance(address, propertyId, MONEY);
+            int64_t available = getUserAvailableMPbalance(address, propertyId);
             int64_t reserved = getMPbalance(address, propertyId, SELLOFFER_RESERVE);
             if (propertyId<3) reserved += getMPbalance(address, propertyId, ACCEPT_RESERVE);
 
