@@ -1824,7 +1824,7 @@ static int load_most_relevant_state()
       continue;
     }
 
-    std::string fName = (*--dIter->path().end()).c_str();
+    std::string fName = (*--dIter->path().end()).string();
     std::vector<std::string> vstr;
     boost::split(vstr, fName, boost::is_any_of("-."), token_compress_on);
     if (  vstr.size() == 3 &&
