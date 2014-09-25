@@ -167,7 +167,7 @@ Value getbalance_MP(const Array& params, bool fHelp)
 
     Object balObj;
 
-    int64_t tmpBalAvailable = getMPbalance(address, propertyId, MONEY);
+    int64_t tmpBalAvailable = getUserAvailableMPbalance(address, propertyId);
     int64_t tmpBalReservedSell = getMPbalance(address, propertyId, SELLOFFER_RESERVE);
     int64_t tmpBalReservedAccept = 0;
     if (propertyId<3) tmpBalReservedAccept = getMPbalance(address, propertyId, ACCEPT_RESERVE);
@@ -406,7 +406,7 @@ Value getallbalancesforid_MP(const Array& params, bool fHelp)
 
         Object addressbal;
 
-        int64_t tmpBalAvailable = getMPbalance(address, propertyId, MONEY);
+        int64_t tmpBalAvailable = getUserAvailableMPbalance(address, propertyId);
         int64_t tmpBalReservedSell = getMPbalance(address, propertyId, SELLOFFER_RESERVE);
         int64_t tmpBalReservedAccept = 0;
         if (propertyId<3) tmpBalReservedAccept = getMPbalance(address, propertyId, ACCEPT_RESERVE);
@@ -475,7 +475,7 @@ Value getallbalancesforaddress_MP(const Array& params, bool fHelp)
 
             propertyBal.push_back(Pair("propertyid", propertyId));
 
-            int64_t tmpBalAvailable = getMPbalance(address, propertyId, MONEY);
+            int64_t tmpBalAvailable = getUserAvailableMPbalance(address, propertyId);
             int64_t tmpBalReservedSell = getMPbalance(address, propertyId, SELLOFFER_RESERVE);
             int64_t tmpBalReservedAccept = 0;
             if (propertyId<3) tmpBalReservedAccept = getMPbalance(address, propertyId, ACCEPT_RESERVE);
