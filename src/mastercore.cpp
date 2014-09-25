@@ -52,7 +52,7 @@
 
 // comment out MY_HACK & others here - used for Unit Testing only !
 // #define MY_HACK
-#define DISABLE_LOG_FILE 
+// #define DISABLE_LOG_FILE
 
 FILE *mp_fp = NULL;
 
@@ -96,21 +96,21 @@ int64_t mastercore_referenceAmount = 0;
 
 static boost::filesystem::path MPPersistencePath;
 
-int msc_debug_parser_data = 0;
-int msc_debug_parser= 0;
+int msc_debug_parser_data = 1;
+int msc_debug_parser= 1;
 int msc_debug_verbose=1;
-int msc_debug_verbose2=0;
-int msc_debug_vin   = 0;
-int msc_debug_script= 0;
+int msc_debug_verbose2=1;
+int msc_debug_vin   = 1;
+int msc_debug_script= 1;
 int msc_debug_dex   = 1;
 int msc_debug_send  = 1;
 int msc_debug_spec  = 1;
-int msc_debug_exo   = 0;
+int msc_debug_exo   = 1;
 int msc_debug_tally = 1;
 int msc_debug_sp    = 1;
 int msc_debug_sto   = 1;
-int msc_debug_txdb  = 0;
-int msc_debug_persistence = 0;
+int msc_debug_txdb  = 1;
+int msc_debug_persistence = 1;
 int msc_debug_metadex= 1;
 
 static int disable_Divs = 0;
