@@ -147,7 +147,7 @@ class CMPTally
 private:
 typedef struct
 {
-  uint64_t balance[TALLY_TYPE_COUNT];
+  int64_t balance[TALLY_TYPE_COUNT];
 } BalanceRecord;
 
   typedef std::map<unsigned int, BalanceRecord> TokenMap;
@@ -217,12 +217,12 @@ public:
     my_it = mp_token.begin();
   }
 
-  uint64_t print(int which_currency = MASTERCOIN_CURRENCY_MSC, bool bDivisible = true)
+  int64_t print(int which_currency = MASTERCOIN_CURRENCY_MSC, bool bDivisible = true)
   {
-  uint64_t money = 0;
-  uint64_t so_r = 0;
-  uint64_t a_r = 0;
-  uint64_t pending = 0;
+  int64_t money = 0;
+  int64_t so_r = 0;
+  int64_t a_r = 0;
+  int64_t pending = 0;
 
     if (propertyExists(which_currency))
     {
@@ -245,9 +245,9 @@ public:
     return (money + so_r + a_r);
   }
 
-  uint64_t getMoney(unsigned int which_currency, TallyType ttype)
+  int64_t getMoney(unsigned int which_currency, TallyType ttype)
   {
-  uint64_t ret64 = 0;
+  int64_t ret64 = 0;
 
     if (TALLY_TYPE_COUNT <= ttype) return 0;
 
@@ -322,12 +322,26 @@ public:
     bool isMPinBlockRange(int, int, bool);
 };
 
+class CMPPending
+{
+public:
+  string src;
+  string dest;
+  unsigned int curr;
+  int64_t amount;
+
+  void print(uint256 txid) const
+  {
+    printf("%s : %s %s %d %ld\n", txid.GetHex().c_str(), src.c_str(), dest.c_str(), curr, amount);
+  }
+};
+
 extern uint64_t global_MSC_total;
 extern uint64_t global_MSC_RESERVED_total;
 
 int mastercore_init(void);
 
-uint64_t getMPbalance(const string &Address, unsigned int currency, TallyType ttype);
+int64_t getMPbalance(const string &Address, unsigned int currency, TallyType ttype);
 bool IsMyAddress(const std::string &address);
 
 string getLabel(const string &address);
@@ -351,6 +365,11 @@ namespace mastercore
 {
 extern std::map<string, CMPTally> mp_tally_map;
 extern CMPTxList *p_txlistdb;
+
+typedef std::map<uint256, CMPPending> PendingMap;
+
+extern PendingMap my_pending;
+int pendingAdd(const uint256 &txid, const CMPPending &pend);
 
 string strMPCurrency(unsigned int i);
 

@@ -249,6 +249,17 @@ if (fHelp || params.size() < 4 || params.size() > 6)
   if (update_tally_map(FromAddress, propertyId, -Amount, PENDING))
   {
     update_tally_map(ToAddress, propertyId, Amount, PENDING);
+
+    {
+    CMPPending pending;
+
+      pending.src = FromAddress;
+      pending.dest = ToAddress;
+      pending.amount = Amount;
+      pending.curr = propertyId;
+
+      pendingAdd(newTX, pending);
+    }
   }
 
   //we need to do better than just returning a string of 0000000 here if we can't send the TX

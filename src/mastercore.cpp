@@ -94,6 +94,7 @@ int msc_debug_parser_data = 0;
 int msc_debug_parser= 0;
 int msc_debug_verbose=0;
 int msc_debug_verbose2=0;
+int msc_debug_verbose3=1;
 int msc_debug_vin   = 0;
 int msc_debug_script= 0;
 int msc_debug_dex   = 1;
@@ -356,6 +357,57 @@ CMPSPInfo *mastercore::_my_sps;
 CrowdMap mastercore::my_crowds;
 MetaDExMap mastercore::metadex;
 
+PendingMap mastercore::my_pending;
+
+CMPPending *pendingDelete(const uint256 txid, bool bErase = false)
+{
+  if (msc_debug_verbose3) fprintf(mp_fp, "%s(%s)\n", __FUNCTION__, txid.GetHex().c_str());
+
+  PendingMap::iterator it = my_pending.find(txid);
+
+  if (it != my_pending.end())
+  {
+    // display
+    CMPPending *p_pending = &(it->second);
+
+    p_pending->print(txid);
+
+    int64_t src_amount = getMPbalance(p_pending->src, p_pending->curr, PENDING);
+    int64_t dest_amount = getMPbalance(p_pending->dest, p_pending->curr, PENDING);
+
+    printf("%s()src= %ld, dest= %ld, line %d, file: %s\n", __FUNCTION__, src_amount, dest_amount, __LINE__, __FILE__);
+
+    if (src_amount && dest_amount)
+    {
+      if (update_tally_map(p_pending->dest, p_pending->curr, - p_pending->amount, PENDING))
+      {
+        update_tally_map(p_pending->src, p_pending->curr, p_pending->amount, PENDING);
+      }
+    }
+
+    if (bErase)
+    {
+      my_pending.erase(it);
+    }
+    else
+    {
+      return &(it->second);
+    }
+  }
+
+  return (CMPPending *) NULL;
+}
+
+int mastercore::pendingAdd(const uint256 &txid, const CMPPending &pend)
+{
+  printf("%s(), line %d, file: %s\n", __FUNCTION__, __LINE__, __FILE__);
+
+  pend.print(txid);
+  my_pending.insert(std::make_pair(txid, pend));
+
+  return 0;
+}
+
 // this is the master list of all amounts for all addresses for all currencies, map is sorted by Bitcoin address
 std::map<string, CMPTally> mastercore::mp_tally_map;
 
@@ -371,7 +423,7 @@ CMPTally *mastercore::getTally(const string & address)
 }
 
 // look at balance for an address
-uint64_t getMPbalance(const string &Address, unsigned int currency, TallyType ttype)
+int64_t getMPbalance(const string &Address, unsigned int currency, TallyType ttype)
 {
 uint64_t balance = 0;
 
@@ -2255,6 +2307,9 @@ int mastercore_handler_tx(const CTransaction &tx, int nBlock, unsigned int idx, 
     mastercore_init();
   }
 
+  // clear pending, if any
+  (void) pendingDelete(tx.GetHash(), true);
+
 CMPTransaction mp_obj;
 // save the augmented offer or accept amount into the database as well (expecting them to be numerically lower than that in the blockchain)
 int interp_ret = -555555, pop_ret;
@@ -3440,7 +3495,7 @@ int rc = PKT_ERROR_STO -1000;
       }
 
       // does the sender have enough of the property he's trying to "Send To Owners" ?
-      if (getMPbalance(sender, currency, MONEY) < nValue)
+      if (getMPbalance(sender, currency, MONEY) < (int64_t)nValue)
       {
         return (PKT_ERROR_STO -3);
       }
@@ -3493,7 +3548,7 @@ int rc = PKT_ERROR_STO -1000;
         return (PKT_ERROR_STO -4);
       }
 
-      uint64_t nXferFee = TRANSFER_FEE_PER_OWNER * n_owners;
+      int64_t nXferFee = TRANSFER_FEE_PER_OWNER * n_owners;
 
       // determine which currency the fee will be paid in
       const unsigned int feeCurrency = isTestEcosystemProperty(currency) ? MASTERCOIN_CURRENCY_TMSC : MASTERCOIN_CURRENCY_MSC;
@@ -3509,7 +3564,7 @@ int rc = PKT_ERROR_STO -1000;
       // special case check, only if distributing MSC or TMSC -- the currency the fee will be paid in
       if (feeCurrency == currency)
       {
-        if (getMPbalance(sender, feeCurrency, MONEY) < (nValue + nXferFee))
+        if (getMPbalance(sender, feeCurrency, MONEY) < (int64_t)(nValue + nXferFee))
         {
           return (PKT_ERROR_STO -55);
         }
