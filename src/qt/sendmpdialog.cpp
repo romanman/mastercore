@@ -69,7 +69,7 @@ SendMPDialog::SendMPDialog(QWidget *parent) :
     model(0)
 {
     ui->setupUi(this);
-    this->model = model; //not viable method for setting walletmodel
+    this->model = model;
 
 #ifdef Q_OS_MAC // Icons on push buttons are very uncommon on Mac
     ui->addButton->setIcon(QIcon());
@@ -308,7 +308,7 @@ void SendMPDialog::sendMPTransaction()
     }
 
     // check if sending address has enough funds
-    int64_t balanceAvailable = getMPbalance(fromAddress.ToString(), propertyId, MONEY); // not changing to getUserAvailableMPbalance as this is a send validation
+    int64_t balanceAvailable = getUserAvailableMPbalance(fromAddress.ToString(), propertyId); //getMPbalance(fromAddress.ToString(), propertyId, MONEY);
     if (sendAmount>balanceAvailable)
     {
         QMessageBox::critical( this, "Unable to send transaction",
@@ -316,7 +316,15 @@ void SendMPDialog::sendMPTransaction()
         return;
     }
 
-    // should we check here for sufficient BTC fees or simply let the sendMP function return that?
+    // check if wallet is still syncing, as this will currently cause a lockup if we try to send - compare our chain to peers to see if we're up to date
+    int ourBlocks = chainActive.Height();
+    int peerBlocks = GetNumBlocksOfPeers();
+    if (ourBlocks<peerBlocks)
+    {
+        QMessageBox::critical( this, "Unable to send transaction",
+        "The client is still synchronizing.  Sending transactions can currently be performed only when the client has completed synchronizing." );
+        return;
+    }
 
     // validation checks all look ok, let's throw up a confirmation dialog
     string strMsgText = "You are about to send the following transaction, please check the details thoroughly:\n\n";
@@ -336,7 +344,7 @@ void SendMPDialog::sendMPTransaction()
         return;
     }
 
-    // unlock the wallet - this segfaults - look into setting the walletmodel correctly
+    // unlock the wallet
     WalletModel::UnlockContext ctx(model->requestUnlock());
     if(!ctx.isValid())
     {
