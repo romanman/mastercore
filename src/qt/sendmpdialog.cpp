@@ -393,18 +393,6 @@ void SendMPDialog::sendMPTransaction()
     }
     else
     {
-        // add the send to the pending struct and update the pending tally
-        if (update_tally_map(fromAddress.ToString(), propertyId, -sendAmount, PENDING))
-        {
-            update_tally_map(refAddress.ToString(), propertyId, sendAmount, PENDING);
-            CMPPending pending;
-            pending.src = fromAddress.ToString();
-            pending.dest = refAddress.ToString();
-            pending.amount = sendAmount;
-            pending.curr = propertyId;
-            pendingAdd(sendTXID, pending);
-        }
-
         // call an update of the balances
         set_wallet_totals();
         updateBalances();
