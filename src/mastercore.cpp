@@ -2343,6 +2343,9 @@ int mastercore_handler_tx(const CTransaction &tx, int nBlock, unsigned int idx, 
   }
 
   // clear pending, if any
+  // NOTE1: Every incoming TX is checked, not just MP-ones because:
+  //  if for some reason the incoming TX doesn't pass our parser validation steps successfuly, I'd still want to clear pending amounts for that TX.
+  // NOTE2: Plus I wanna clear the amount before that TX is parsed by our protocol, in case we ever consider pending amounts in internal calculations.
   (void) pendingDelete(tx.GetHash(), true);
 
 CMPTransaction mp_obj;
