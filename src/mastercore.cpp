@@ -378,7 +378,7 @@ CMPPending *pendingDelete(const uint256 txid, bool bErase = false)
     int64_t src_amount = getMPbalance(p_pending->src, p_pending->curr, PENDING);
     int64_t dest_amount = getMPbalance(p_pending->dest, p_pending->curr, PENDING);
 
-    printf("%s()src= %ld, dest= %ld, line %d, file: %s\n", __FUNCTION__, src_amount, dest_amount, __LINE__, __FILE__);
+    fprintf(mp_fp, "%s()src= %ld, dest= %ld, line %d, file: %s\n", __FUNCTION__, src_amount, dest_amount, __LINE__, __FILE__);
 
     if (src_amount && dest_amount)
     {
@@ -455,6 +455,13 @@ int64_t pending = getMPbalance(Address, currency, PENDING);
   }
 
   return money;
+}
+
+static bool isRangeOK(const uint64_t input)
+{
+  if (MAX_INT_8_BYTES < input) return false;
+
+  return true;
 }
 
 // returns false if we are out of range and/or overflow
@@ -2698,19 +2705,43 @@ vector< pair<CScript, int64_t> > vecSend;
 // WIP: expanding the function to a general-purpose one, but still sending 1 packet only for now (30-31 bytes)
 uint256 mastercore::send_INTERNAL_1packet(const string &FromAddress, const string &ToAddress, const string &RedeemAddress, unsigned int CurrencyID, uint64_t Amount, unsigned int TransactionType, int64_t additional, int *error_code)
 {
-const uint64_t nAvailable = getMPbalance(FromAddress, CurrencyID, MONEY);
+const int64_t iAvailable = getMPbalance(FromAddress, CurrencyID, MONEY);
+const int64_t iUserAvailable = getUserAvailableMPbalance(FromAddress, CurrencyID);
 int rc = -1;
 uint256 txid = 0;
 
-  if (msc_debug_send) fprintf(mp_fp, "%s(From: %s , To: %s , Currency= %u, Amount= %lu)\n",
-   __FUNCTION__, FromAddress.c_str(), ToAddress.c_str(), CurrencyID, Amount);
+  if (msc_debug_send) fprintf(mp_fp, "%s(From: %s , To: %s , Currency= %u, Amount= %lu, Available= %ld, Pending= %ld)\n",
+   __FUNCTION__, FromAddress.c_str(), ToAddress.c_str(), CurrencyID, Amount, iAvailable, iUserAvailable);
+
+  if (mp_fp) fflush(mp_fp);
+
+  if (!isRangeOK(Amount))
+  {
+    rc -= 10;
+    if (error_code) *error_code = rc;
+
+    return 0;
+  }
 
   // make sure this address has enough MP currency available!
-  if ((nAvailable < Amount) || (0 == Amount))
+  if (((uint64_t)iAvailable < Amount) || (0 == Amount))
   {
-    LogPrintf("%s(): aborted -- not enough MP currency (%lu < %lu)\n", __FUNCTION__, nAvailable, Amount);
-    if (msc_debug_send) fprintf(mp_fp, "%s(): aborted -- not enough MP currency (%lu < %lu)\n", __FUNCTION__, nAvailable, Amount);
+    LogPrintf("%s(): aborted -- not enough MP currency (%lu < %lu)\n", __FUNCTION__, iAvailable, Amount);
+    if (msc_debug_send) fprintf(mp_fp, "%s(): aborted -- not enough MP currency (%lu < %lu)\n", __FUNCTION__, iAvailable, Amount);
 
+    if (error_code) *error_code = rc;
+
+    return 0;
+  }
+
+  // check once more, this time considering PENDING amount reduction
+  // make sure this address has enough MP currency available!
+  if ((iUserAvailable < (int64_t)Amount) || (0 == Amount))
+  {
+    LogPrintf("%s(): aborted -- not enough MP currency with PENDING reduction (%lu < %lu)\n", __FUNCTION__, iUserAvailable, Amount);
+    if (msc_debug_send) fprintf(mp_fp, "%s(): aborted -- not enough MP currency with PENDING reduction (%lu < %lu)\n", __FUNCTION__, iUserAvailable, Amount);
+
+    rc -= 1;
     if (error_code) *error_code = rc;
 
     return 0;
@@ -2729,6 +2760,8 @@ uint256 txid = 0;
   if (msc_debug_send) fprintf(mp_fp, "ClassB_send returned %d\n", rc);
 
   if (error_code) *error_code = rc;
+
+  if (mp_fp) fflush(mp_fp);
 
   return txid;
 }
@@ -3389,7 +3422,7 @@ int step_rc;
       }
       else
       {
-        fprintf(mp_fp, "\nPROBLEM writing %s, errno= %d\n", INFO_FILENAME, errno);
+        fprintf(mp_fp, "\nPROBLEM writing %s, errno= %d\n", OWNERS_FILENAME, errno);
       }
 
       rc = logicMath_SendToOwners(fp);
