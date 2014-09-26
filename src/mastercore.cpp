@@ -101,16 +101,16 @@ int msc_debug_verbose2=0;
 int msc_debug_verbose3=0;
 int msc_debug_vin   = 0;
 int msc_debug_script= 0;
-int msc_debug_dex   = 0;
-int msc_debug_send  = 0;
-int msc_debug_spec  = 0;
+int msc_debug_dex   = 1;
+int msc_debug_send  = 1;
+int msc_debug_spec  = 1;
 int msc_debug_exo   = 0;
-int msc_debug_tally = 0;
-int msc_debug_sp    = 0;
-int msc_debug_sto   = 0;
+int msc_debug_tally = 1;
+int msc_debug_sp    = 1;
+int msc_debug_sto   = 1;
 int msc_debug_txdb  = 0;
 int msc_debug_persistence = 0;
-int msc_debug_metadex= 0;
+int msc_debug_metadex= 1;
 
 static int disable_Divs = 0;
 
