@@ -52,7 +52,7 @@
 
 // comment out MY_HACK & others here - used for Unit Testing only !
 // #define MY_HACK
-// #define DISABLE_LOG_FILE 
+//#define DISABLE_LOG_FILE
 
 FILE *mp_fp = NULL;
 
@@ -82,8 +82,12 @@ static const int nBlockTop = 0;
 
 static int nWaterlineBlock = 0;  //
 
-// uint64_t global_MSC_total = 0;
-// uint64_t global_MSC_RESERVED_total = 0;
+uint64_t global_MSC_total = 0;
+uint64_t global_MSC_RESERVED_total = 0;
+uint64_t global_balance_money_maineco[100000];
+uint64_t global_balance_reserved_maineco[100000];
+uint64_t global_balance_money_testeco[100000];
+uint64_t global_balance_reserved_testeco[100000];
 
 static uint64_t exodus_prev = 0;
 static uint64_t exodus_balance;
@@ -97,16 +101,16 @@ int msc_debug_verbose2=0;
 int msc_debug_verbose3=0;
 int msc_debug_vin   = 0;
 int msc_debug_script= 0;
-int msc_debug_dex   = 1;
-int msc_debug_send  = 1;
-int msc_debug_spec  = 1;
+int msc_debug_dex   = 0;
+int msc_debug_send  = 0;
+int msc_debug_spec  = 0;
 int msc_debug_exo   = 0;
-int msc_debug_tally = 1;
-int msc_debug_sp    = 1;
-int msc_debug_sto   = 1;
+int msc_debug_tally = 0;
+int msc_debug_sp    = 0;
+int msc_debug_sto   = 0;
 int msc_debug_txdb  = 0;
 int msc_debug_persistence = 0;
-int msc_debug_metadex= 1;
+int msc_debug_metadex= 0;
 
 static int disable_Divs = 0;
 
@@ -184,7 +188,6 @@ static void ShrinkMasterCoreDebugFile()
         fseek(file, -sizeof(pch), SEEK_END);
         int nBytes = fread(pch, 1, sizeof(pch), file);
         fclose(file);
-
         file = fopen(pathLog.string().c_str(), "w");
         if (file)
         {
@@ -784,33 +787,53 @@ const double available_reward=all_reward * part_available;
 }
 
 // TODO: optimize efficiency -- iterate only over wallet's addresses in the future
-int set_wallet_totals()
-{
-int my_addresses_count = 0;
-/* DISABLE FOR NOW !!!
-const unsigned int currency = MASTERCOIN_CURRENCY_MSC;  // FIXME: hard-coded for MSC only, for PoC
+// NOTE: if we loop over wallet addresses we miss tokens that may be in change addresses (since mapAddressBook does not
+//       include change addresses).  with current transaction load, about 0.02 - 0.06 seconds is spent on this function
 
-  global_MSC_total = 0;
-  global_MSC_RESERVED_total = 0;
+int mastercore::set_wallet_totals()
+{
+  //concerned about efficiency here, time how long this takes, averaging 0.02-0.04s on my system
+  //timer t;
+  int my_addresses_count = 0;
+  int64_t propertyId;
+  unsigned int nextSPID = _my_sps->peekNextSPID(1); // real eco
+  unsigned int nextTestSPID = _my_sps->peekNextSPID(2); // test eco
+
+  //zero bals
+  for (propertyId = 1; propertyId<nextSPID; propertyId++) //main eco
+  {
+    global_balance_money_maineco[propertyId] = 0;
+    global_balance_reserved_maineco[propertyId] = 0;
+  }
+  for (propertyId = TEST_ECO_PROPERTY_1; propertyId<nextTestSPID; propertyId++) //test eco
+  {
+    global_balance_money_testeco[propertyId-2147483647] = 0;
+    global_balance_reserved_testeco[propertyId-2147483647] = 0;
+  }
 
   for(map<string, CMPTally>::iterator my_it = mp_tally_map.begin(); my_it != mp_tally_map.end(); ++my_it)
   {
-    // my_it->first = key
-    // my_it->second = value
-
     if (IsMyAddress(my_it->first))
     {
-      ++my_addresses_count;
-
-      global_MSC_total += (my_it->second).getMoney(currency, false);
-      global_MSC_RESERVED_total += (my_it->second).getMoney(currency, true);
+       for (propertyId = 1; propertyId<nextSPID; propertyId++) //main eco
+       {
+              //global_balance_money_maineco[propertyId] += getMPbalance(my_it->first, propertyId, MONEY);
+              global_balance_money_maineco[propertyId] += getUserAvailableMPbalance(my_it->first, propertyId);
+              global_balance_reserved_maineco[propertyId] += getMPbalance(my_it->first, propertyId, SELLOFFER_RESERVE);
+              if (propertyId < 3) global_balance_reserved_maineco[propertyId] += getMPbalance(my_it->first, propertyId, ACCEPT_RESERVE);
+       }
+       for (propertyId = TEST_ECO_PROPERTY_1; propertyId<nextTestSPID; propertyId++) //test eco
+       {
+              //global_balance_money_testeco[propertyId-2147483647] += getMPbalance(my_it->first, propertyId, MONEY);
+              global_balance_money_testeco[propertyId-2147483647] += getUserAvailableMPbalance(my_it->first, propertyId);
+              global_balance_reserved_testeco[propertyId-2147483647] += getMPbalance(my_it->first, propertyId, SELLOFFER_RESERVE);
+       }
     }
   }
-*/
-
+  //printf("Global MSC totals: MSC_total= %lu, MSC_RESERVED_total= %lu\n", global_balance_money_maineco[1], global_balance_reserved_maineco[1]);
+  //std::cout << t.elapsed() << std::endl;
   return (my_addresses_count);
 }
-
 
 static void prepareObfuscatedHashes(const string &address, string (&ObfsHashes)[1+MAX_SHA256_OBFUSCATION_TIMES])
 {
@@ -2160,7 +2183,6 @@ int mastercore_init()
   }
 
   printf("%s()%s, line %d, file: %s\n", __FUNCTION__, isNonMainNet() ? "TESTNET":"", __LINE__, __FILE__);
-
   ShrinkMasterCoreDebugFile();
 
 #ifndef  DISABLE_LOG_FILE
@@ -2418,7 +2440,7 @@ int64_t GetDustLimit(const CScript& scriptPubKey)
     return nDustLimit;
 }
 
-static int selectCoins(const string &FromAddress, CCoinControl &coinControl, int64_t additional)
+static int64_t selectCoins(const string &FromAddress, CCoinControl &coinControl, int64_t additional)
 {
   CWallet *wallet = pwalletMain;
   int64_t n_max = (COIN * (20 * (0.0001))); // assume 20KBytes max TX size at 0.0001 per kilobyte
@@ -2485,7 +2507,15 @@ static int selectCoins(const string &FromAddress, CCoinControl &coinControl, int
         break;
     } // for iterate over the wallet end
 
-  return 0;
+// return 0;
+return n_total;
+}
+
+int64_t feeCheck(const string &address)
+{
+    // check the supplied address against selectCoins to determine if sufficient fees for send
+    CCoinControl coinControl;
+    return selectCoins(address, coinControl, 0);
 }
 
 #define PUSH_BACK_BYTES(vector, value)\
