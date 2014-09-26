@@ -114,6 +114,7 @@ SendMPDialog::SendMPDialog(QWidget *parent) :
     connect(ui->sendFromComboBox, SIGNAL(activated(int)), this, SLOT(sendFromComboBoxChanged(int)));
     connect(ui->clearButton, SIGNAL(clicked()), this, SLOT(clearButtonClicked()));
     connect(ui->sendButton, SIGNAL(clicked()), this, SLOT(sendButtonClicked()));
+    connect(model, SIGNAL(balanceChanged(qint64, qint64, qint64)), this, SLOT(balancesUpdated()));
 
     // initial update
     updateProperty();
@@ -438,3 +439,7 @@ void SendMPDialog::sendButtonClicked()
     sendMPTransaction();
 }
 
+void SendMPDialog::balancesUpdated()
+{
+    updateBalances();
+}
