@@ -135,31 +135,10 @@ void SendMPDialog::updateFrom()
 {
     // update wallet balances
     set_wallet_totals();
-
-    // populate balance for currently selected address
-    QString spId = ui->propertyComboBox->itemData(ui->propertyComboBox->currentIndex()).toString();
-    unsigned int propertyId = spId.toUInt();
-    LOCK(cs_tally);
-    QString selectedFromAddress = ui->sendFromComboBox->currentText();
-    std::string stdSelectedFromAddress = selectedFromAddress.toStdString();
-    //int64_t balanceAvailable = getMPbalance(stdSelectedFromAddress, propertyId, MONEY);
-    int64_t balanceAvailable = getUserAvailableMPbalance(stdSelectedFromAddress, propertyId);
-    QString balanceLabel;
-    std::string tokenLabel;
-    if (propertyId==1) tokenLabel = " MSC";
-    if (propertyId==2) tokenLabel = " TMSC";
-    if (propertyId>2) tokenLabel = " SPT";
-    if (isPropertyDivisible(propertyId))
-    {
-        balanceLabel = QString::fromStdString("Address Balance (Available): " + FormatDivisibleMP(balanceAvailable) + tokenLabel);
-    }
-    else
-    {
-        balanceLabel = QString::fromStdString("Address Balance (Available): " + FormatIndivisibleMP(balanceAvailable) + tokenLabel);
-    }
-    ui->addressBalanceLabel->setText(balanceLabel);
+    updateBalances();
 
     // check if this from address has sufficient fees for a send, if not light up warning label
+    QString selectedFromAddress = ui->sendFromComboBox->currentText();
     int64_t inputTotal = feeCheck(selectedFromAddress.toStdString());
     if (inputTotal>=50000)
     {
@@ -207,10 +186,25 @@ void SendMPDialog::updateProperty()
     int fromIdx = ui->sendFromComboBox->findText(currentSetFromAddress);
     if (fromIdx != -1) { ui->sendFromComboBox->setCurrentIndex(fromIdx); } // -1 means the currently set from address doesn't have a balance in the newly selected property
 
+    // update placeholder text
+    if (isPropertyDivisible(propertyId))
+    {
+        ui->amountLineEdit->setPlaceholderText("Enter Divisible Amount");
+    }
+    else
+    {
+        ui->amountLineEdit->setPlaceholderText("Enter Indivisible Amount");
+    }
+    updateBalances();
+}
+
+void SendMPDialog::updateBalances()
+{
     // populate balance for currently selected address and global wallet balance
+    QString spId = ui->propertyComboBox->itemData(ui->propertyComboBox->currentIndex()).toString();
+    unsigned int propertyId = spId.toUInt();
     QString selectedFromAddress = ui->sendFromComboBox->currentText();
     std::string stdSelectedFromAddress = selectedFromAddress.toStdString();
-    //int64_t balanceAvailable = getMPbalance(stdSelectedFromAddress, propertyId, MONEY);
     int64_t balanceAvailable = getUserAvailableMPbalance(stdSelectedFromAddress, propertyId);
     int64_t globalAvailable = 0;
     if (propertyId<2147483648) { globalAvailable = global_balance_money_maineco[propertyId]; } else { globalAvailable = global_balance_money_testeco[propertyId-2147483647]; }
@@ -224,13 +218,11 @@ void SendMPDialog::updateProperty()
     {
         balanceLabel = QString::fromStdString("Address Balance (Available): " + FormatDivisibleMP(balanceAvailable) + tokenLabel);
         globalLabel = QString::fromStdString("Wallet Balance (Available): " + FormatDivisibleMP(globalAvailable) + tokenLabel);
-        ui->amountLineEdit->setPlaceholderText("Enter Divisible Amount");
     }
     else
     {
         balanceLabel = QString::fromStdString("Address Balance (Available): " + FormatIndivisibleMP(balanceAvailable) + tokenLabel);
         globalLabel = QString::fromStdString("Wallet Balance (Available): " + FormatIndivisibleMP(globalAvailable) + tokenLabel);
-        ui->amountLineEdit->setPlaceholderText("Enter Indivisible Amount");
     }
     ui->addressBalanceLabel->setText(balanceLabel);
     ui->globalBalanceLabel->setText(globalLabel);
@@ -401,6 +393,22 @@ void SendMPDialog::sendMPTransaction()
     }
     else
     {
+        // add the send to the pending struct and update the pending tally
+        if (update_tally_map(fromAddress.ToString(), propertyId, -sendAmount, PENDING))
+        {
+            update_tally_map(refAddress.ToString(), propertyId, sendAmount, PENDING);
+            CMPPending pending;
+            pending.src = fromAddress.ToString();
+            pending.dest = refAddress.ToString();
+            pending.amount = sendAmount;
+            pending.curr = propertyId;
+            pendingAdd(sendTXID, pending);
+        }
+
+        // call an update of the balances
+        set_wallet_totals();
+        updateBalances();
+
         // display the result
         string strSentText = "Your Master Protocol transaction has been sent.\n\nThe transaction ID is:\n\n";
         strSentText += sendTXID.GetHex() + "\n\n";
