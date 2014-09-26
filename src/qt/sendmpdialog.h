@@ -50,6 +50,7 @@ public slots:
     void sendFromComboBoxChanged(int idx);
     void clearButtonClicked();
     void sendButtonClicked();
+    void balancesUpdated();
 
 private:
     Ui::SendMPDialog *ui;
