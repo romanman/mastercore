@@ -160,11 +160,11 @@ unsigned int prop_id;
 
   i = 0;
 
-  memcpy(category, spstr[i].c_str(), std::min(spstr[i].length(),sizeof(category))); i++;
-  memcpy(subcategory, spstr[i].c_str(), std::min(spstr[i].length(),sizeof(subcategory))); i++;
-  memcpy(name, spstr[i].c_str(), std::min(spstr[i].length(),sizeof(name))); i++;
-  memcpy(url, spstr[i].c_str(), std::min(spstr[i].length(),sizeof(url))); i++;
-  memcpy(data, spstr[i].c_str(), std::min(spstr[i].length(),sizeof(data))); i++;
+  memcpy(category, spstr[i].c_str(), std::min(spstr[i].length(),sizeof(category)-1)); i++;
+  memcpy(subcategory, spstr[i].c_str(), std::min(spstr[i].length(),sizeof(subcategory)-1)); i++;
+  memcpy(name, spstr[i].c_str(), std::min(spstr[i].length(),sizeof(name)-1)); i++;
+  memcpy(url, spstr[i].c_str(), std::min(spstr[i].length(),sizeof(url)-1)); i++;
+  memcpy(data, spstr[i].c_str(), std::min(spstr[i].length(),sizeof(data)-1)); i++;
 
   fprintf(mp_fp, "\t        Category: %s\n", category);
   fprintf(mp_fp, "\t     Subcategory: %s\n", subcategory);
