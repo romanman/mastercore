@@ -605,7 +605,7 @@ int main(int argc, char *argv[])
     warningDialog.setWindowTitle("WARNING - Experimental Software");
     warningDialog.setText(warningText);
     warningDialog.setStandardButtons(QMessageBox::No|QMessageBox::Yes);
-    warningDialog.setDefaultButton(QMessageBox::No);
+    warningDialog.setDefaultButton(QMessageBox::Yes);
     warningDialog.setButtonText( QMessageBox::No, "Exit" );
     warningDialog.setButtonText( QMessageBox::Yes, "Acknowledge + Continue" );
     if(warningDialog.exec() == QMessageBox::No)
