@@ -181,13 +181,14 @@ static void ShrinkMasterCoreDebugFile()
 #ifndef  DISABLE_LOG_FILE
     boost::filesystem::path pathLog = GetDataDir() / LOG_FILENAME;
     FILE* file = fopen(pathLog.string().c_str(), "r");
-    if (file && boost::filesystem::file_size(pathLog) > 50 * 1000000) // 50 MBytes
+    if (file && boost::filesystem::file_size(pathLog) > 10 * 1000000) // 10 MBytes
     {
         // Restart the file with some of the end
-        char pch[8000000]; // preserve 8MBytes of old data
+        char pch[200000]; // preserve 200KBytes of old data
         fseek(file, -sizeof(pch), SEEK_END);
         int nBytes = fread(pch, 1, sizeof(pch), file);
         fclose(file);
+
         file = fopen(pathLog.string().c_str(), "w");
         if (file)
         {
