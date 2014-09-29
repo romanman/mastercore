@@ -179,25 +179,33 @@ static void ShrinkMasterCoreDebugFile()
 {
     // Scroll log if it's getting too big
 #ifndef  DISABLE_LOG_FILE
+    const int buffer_size = 8000000;  // 8MBytes
     boost::filesystem::path pathLog = GetDataDir() / LOG_FILENAME;
     FILE* file = fopen(pathLog.string().c_str(), "r");
-    if (file && boost::filesystem::file_size(pathLog) > 10 * 1000000) // 10 MBytes
+
+    if (file && boost::filesystem::file_size(pathLog) > 50000000) // 50MBytes
     {
-        // Restart the file with some of the end
-        char pch[200000]; // preserve 200KBytes of old data
-        fseek(file, -sizeof(pch), SEEK_END);
-        int nBytes = fread(pch, 1, sizeof(pch), file);
-        fclose(file);
+      // Restart the file with some of the end
+      char *pch = new char[buffer_size];
+      if (NULL != pch)
+      {
+        fseek(file, -buffer_size, SEEK_END);
+        int nBytes = fread(pch, 1, buffer_size, file);
+        fclose(file); file = NULL;
 
         file = fopen(pathLog.string().c_str(), "w");
         if (file)
         {
             fwrite(pch, 1, nBytes, file);
-            fclose(file);
+            fclose(file); file = NULL;
         }
+        delete [] pch;
+      }
     }
-    else if (file != NULL)
-        fclose(file);
+    else
+    {
+      if (NULL != file) fclose(file);
+    }
 #endif
 }
 
@@ -2185,9 +2193,7 @@ int mastercore_init()
 
   printf("%s()%s, line %d, file: %s\n", __FUNCTION__, isNonMainNet() ? "TESTNET":"", __LINE__, __FILE__);
 
-#ifndef WIN32
   ShrinkMasterCoreDebugFile();
-#endif
 
 #ifndef  DISABLE_LOG_FILE
   boost::filesystem::path pathTempLog = GetDataDir() / LOG_FILENAME;
