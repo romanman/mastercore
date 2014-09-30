@@ -933,11 +933,6 @@ vector<string>multisig_script_data;
 uint64_t inAll = 0;
 uint64_t outAll = 0;
 uint64_t txFee = 0;
-int p2shAllowed = 0;
-
-            if (P2SH_BLOCK <= nBlock || isNonMainNet()) {
-              p2shAllowed = 1;
-            }
 
             mp_tx->Set(wtx.GetHash(), nBlock, idx, nTime);
 
@@ -987,7 +982,7 @@ int p2shAllowed = 0;
                 txnouttype whichType;
                 bool validType = false;
                 if (!getOutputType(wtx.vout[i].scriptPubKey, whichType)) validType=false;
-                if (TX_PUBKEYHASH == whichType || (p2shAllowed && TX_SCRIPTHASH == whichType)) validType=true; // ignore non pay-to-pubkeyhash or pay-to-scripthash output
+                if (TX_PUBKEYHASH == whichType || (TX_SCRIPTHASH == whichType)) validType=true; // ignore non pay-to-pubkeyhash or pay-to-scripthash output
 
                 strAddress = CBitcoinAddress(dest).ToString();
 
@@ -1053,7 +1048,7 @@ int p2shAllowed = 0;
                 // we only allow pay-to-pubkeyhash, pay-to-scripthash & probably pay-to-pubkey (?)
                 {
                   if (!getOutputType(txPrev.vout[n].scriptPubKey, whichType)) ++inputs_errors;
-                  if ((TX_PUBKEYHASH != whichType && (p2shAllowed && TX_SCRIPTHASH != whichType)) /* || (TX_PUBKEY != whichType) */ ) ++inputs_errors;
+                  if ((TX_PUBKEYHASH != whichType) && (TX_SCRIPTHASH != whichType) /* || (TX_PUBKEY != whichType) */ ) ++inputs_errors;
 
                   if (inputs_errors) break;
                 }
@@ -1182,7 +1177,7 @@ int p2shAllowed = 0;
               {
                   txnouttype whichType;
                   if (!getOutputType(wtx.vout[k].scriptPubKey, whichType)) break; // unable to determine type, ignore output
-                  if (TX_PUBKEYHASH != whichType && (p2shAllowed && TX_SCRIPTHASH != whichType)) break; // ignore non pay-to-pubkeyhash output
+                  if ((TX_PUBKEYHASH != whichType) && (TX_SCRIPTHASH != whichType)) break; // ignore non pay-to-pubkeyhash output
 
                   string strSub = script_data[k].substr(2,16); // retrieve bytes 1-9 of packet for peek & decode comparison
                   seq = (ParseHex(script_data[k].substr(0,2)))[0]; // retrieve sequence number
@@ -1215,7 +1210,7 @@ int p2shAllowed = 0;
                   {
                       txnouttype whichType;
                       if (!getOutputType(wtx.vout[k].scriptPubKey, whichType)) break; // unable to determine type, ignore output
-                      if (TX_PUBKEYHASH != whichType && (p2shAllowed && TX_SCRIPTHASH != whichType)) break; // ignore non pay-to-pubkeyhash output
+                      if ((TX_PUBKEYHASH != whichType) && (TX_SCRIPTHASH != whichType)) break; // ignore non pay-to-pubkeyhash output
 
                       seq = (ParseHex(script_data[k].substr(0,2)))[0]; // retrieve sequence number
 
@@ -1242,7 +1237,7 @@ int p2shAllowed = 0;
                       {
                           txnouttype whichType;
                           if (!getOutputType(wtx.vout[k].scriptPubKey, whichType)) break; // unable to determine type, ignore output
-                          if (TX_PUBKEYHASH != whichType && (p2shAllowed && TX_SCRIPTHASH != whichType)) break; // ignore non pay-to-pubkeyhash output
+                          if ((TX_PUBKEYHASH != whichType) && (TX_SCRIPTHASH != whichType)) break; // ignore non pay-to-pubkeyhash output
 
                           if ((address_data[k] != strDataAddress) && (address_data[k] != exodus_address) && (dataAddressValue == value_data[k])) // this output matches data output, check if matches exodus output
                           {
