@@ -3546,7 +3546,7 @@ int invalid = 0;  // unused
     return rc;
 }
 
-int CMPTransaction::logicMath_SendToOwners(FILE *fp)
+int CMPTransaction::logicMath_SendToOwners(FILE *fhandle)
 {
 int rc = PKT_ERROR_STO -1000;
 
@@ -3605,9 +3605,6 @@ int rc = PKT_ERROR_STO -1000;
       for(OwnerAddrType::reverse_iterator my_it = OwnerAddrSet.rbegin(); my_it != OwnerAddrSet.rend(); ++my_it)
       {
         n_owners++;
-
-        // record the detailed info as needed
-        if (fp) fprintf(fp, "#%ld: %lu = %s\n", n_owners, (my_it->first), (my_it->second).c_str());
       }
 
       fprintf(mp_fp, "\t          Owners: %lu\n", n_owners);
@@ -3676,6 +3673,9 @@ int rc = PKT_ERROR_STO -1000;
         if (msc_debug_sto)
          fprintf(mp_fp, "%14lu = %s, perc= %20.10lf, piece= %20.10lf, should_get= %14lu, will_really_get= %14lu, sent_so_far= %14lu\n",
           owns, address.c_str(), percentage, piece, should_receive, will_really_receive, sent_so_far);
+
+        // record the detailed info as needed
+        if (fhandle) fprintf(fhandle, "%s = %s\n", address.c_str(), FormatDivisibleMP(will_really_receive).c_str());
 
         if (!update_tally_map(sender, currency, - will_really_receive, MONEY))
         {
