@@ -3675,7 +3675,7 @@ int rc = PKT_ERROR_STO -1000;
           owns, address.c_str(), percentage, piece, should_receive, will_really_receive, sent_so_far);
 
         // record the detailed info as needed
-        if (fhandle) fprintf(fhandle, "%s = %s\n", address.c_str(), FormatDivisibleMP(will_really_receive).c_str());
+        if (fhandle) fprintf(fhandle, "%s = %s\n", address.c_str(), bDivisible ?  FormatDivisibleMP(will_really_receive).c_str() : FormatIndivisibleMP(will_really_receive).c_str());
 
         if (!update_tally_map(sender, currency, - will_really_receive, MONEY))
         {
