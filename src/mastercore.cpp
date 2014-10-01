@@ -907,6 +907,22 @@ int TXExodusFundraiser(const CTransaction &wtx, const string &sender, int64_t Ex
   return -1;
 }
 
+static int isValidOutputType(int whichType, int nBlock) {
+  int p2shAllowed = 0;
+
+  if (P2SH_BLOCK <= nBlock || isNonMainNet()) {
+    p2shAllowed = 1;
+  }
+  // validTypes:
+  // 1) Pay to pubkey hash
+  // 2) Pay to Script Hash (IFF p2sh is allowed)
+  if (TX_PUBKEYHASH == whichType || (p2shAllowed && (TX_SCRIPTHASH == whichType))) {
+    return 1;
+  } else {
+    return 0;
+  }
+}
+
 // idx is position within the block, 0-based
 // int msc_tx_push(const CTransaction &wtx, int nBlock, unsigned int idx)
 // INPUT: bRPConly -- set to true to avoid moving funds; to be called from various RPC calls like this
@@ -933,11 +949,6 @@ vector<string>multisig_script_data;
 uint64_t inAll = 0;
 uint64_t outAll = 0;
 uint64_t txFee = 0;
-int p2shAllowed = 0;
-
-            if (P2SH_BLOCK <= nBlock || isNonMainNet()) {
-              p2shAllowed = 1;
-            }
 
             mp_tx->Set(wtx.GetHash(), nBlock, idx, nTime);
 
@@ -987,10 +998,7 @@ int p2shAllowed = 0;
                 txnouttype whichType;
                 bool validType = false;
                 if (!getOutputType(wtx.vout[i].scriptPubKey, whichType)) validType=false;
-                // validTypes:
-                // 1) Pay to pubkey hash
-                // 2) Pay to Script Hash (IFF p2sh is allowed)
-                if (TX_PUBKEYHASH == whichType || (p2shAllowed && (TX_SCRIPTHASH == whichType))) validType=true;
+                if (isValidOutputType(whichType, nBlock)) validType=true;
 
                 strAddress = CBitcoinAddress(dest).ToString();
 
@@ -1056,12 +1064,7 @@ int p2shAllowed = 0;
                 // we only allow pay-to-pubkeyhash, pay-to-scripthash & probably pay-to-pubkey (?)
                 {
                   if (!getOutputType(txPrev.vout[n].scriptPubKey, whichType)) ++inputs_errors;
-                  // Error and Discard when
-                  // type IS NOT p2pkhash
-                  // AND type IS NOT p2sh OR p2sh is not allowed
-                  //
-                  // this is the boolean inverse of "TX_PUBKEYHASH == whichType || (p2shAllowed && (TX_SCRIPTHASH == whichType))"
-                  if ((TX_PUBKEYHASH != whichType && ((p2shAllowed == 0) || (TX_SCRIPTHASH != whichType))) /* || (TX_PUBKEY != whichType) */ ) ++inputs_errors;
+                  if (!isValidOutputType(whichType, nBlock)) ++inputs_errors;
 
                   if (inputs_errors) break;
                 }
@@ -1190,12 +1193,7 @@ int p2shAllowed = 0;
               {
                   txnouttype whichType;
                   if (!getOutputType(wtx.vout[k].scriptPubKey, whichType)) break; // unable to determine type, ignore output
-                  // Ignore Output when
-                  // type IS NOT p2pkhash
-                  // AND type IS NOT p2sh OR p2sh is not allowed
-                  //
-                  // this is the boolean inverse of "TX_PUBKEYHASH == whichType || (p2shAllowed && (TX_SCRIPTHASH == whichType))"
-                  if (TX_PUBKEYHASH != whichType && ((p2shAllowed == 0) || (TX_SCRIPTHASH != whichType))) break;
+                  if (!isValidOutputType(whichType, nBlock)) break;
                   string strSub = script_data[k].substr(2,16); // retrieve bytes 1-9 of packet for peek & decode comparison
                   seq = (ParseHex(script_data[k].substr(0,2)))[0]; // retrieve sequence number
 
@@ -1227,12 +1225,7 @@ int p2shAllowed = 0;
                   {
                       txnouttype whichType;
                       if (!getOutputType(wtx.vout[k].scriptPubKey, whichType)) break; // unable to determine type, ignore output
-                      // Ignore Output when
-                      // type IS NOT p2pkhash
-                      // AND type IS NOT p2sh OR p2sh is not allowed
-                      //
-                      // this is the boolean inverse of "TX_PUBKEYHASH == whichType || (p2shAllowed && (TX_SCRIPTHASH == whichType))"
-                      if (TX_PUBKEYHASH != whichType && ((p2shAllowed == 0) || (TX_SCRIPTHASH != whichType))) break;
+                      if (!isValidOutputType(whichType, nBlock)) break;
 
                       seq = (ParseHex(script_data[k].substr(0,2)))[0]; // retrieve sequence number
 
@@ -1259,12 +1252,7 @@ int p2shAllowed = 0;
                       {
                           txnouttype whichType;
                           if (!getOutputType(wtx.vout[k].scriptPubKey, whichType)) break; // unable to determine type, ignore output
-                          // Ignore Output when
-                          // type IS NOT p2pkhash
-                          // AND type IS NOT p2sh OR p2sh is not allowed
-                          //
-                          // this is the boolean inverse of "TX_PUBKEYHASH == whichType || (p2shAllowed && (TX_SCRIPTHASH == whichType))"
-                          if (TX_PUBKEYHASH != whichType && ((p2shAllowed == 0) || (TX_SCRIPTHASH != whichType))) break;
+                          if (!isValidOutputType(whichType, nBlock)) break;
 
                           if ((address_data[k] != strDataAddress) && (address_data[k] != exodus_address) && (dataAddressValue == value_data[k])) // this output matches data output, check if matches exodus output
                           {
