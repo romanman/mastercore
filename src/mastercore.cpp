@@ -137,6 +137,7 @@ static const int txRestrictionsRules[][3] = {
   {MSC_TYPE_CREATE_PROPERTY_MANUAL,   MSC_MANUALSP_BLOCK,      MP_TX_PKT_V0},
   {MSC_TYPE_GRANT_PROPERTY_TOKENS,    MSC_MANUALSP_BLOCK,      MP_TX_PKT_V0},
   {MSC_TYPE_REVOKE_PROPERTY_TOKENS,   MSC_MANUALSP_BLOCK,      MP_TX_PKT_V0},
+  {MSC_TYPE_CHANGE_ISSUER_ADDRESS,    MSC_MANUALSP_BLOCK,      MP_TX_PKT_V0},
 
 // end of array marker, in addition to sizeof/sizeof
   {-1,-1},
@@ -3423,6 +3424,14 @@ int step_rc;
       if (0>step_rc) return step_rc;
 
       rc = logicMath_MetaDEx();
+      break;
+
+    case MSC_TYPE_CHANGE_ISSUER_ADDRESS:
+      // parse the currency from the packet
+      memcpy(&currency, &pkt[4], 4);
+      swapByteOrder32(currency);
+
+      rc = logicMath_ChangeIssuer();
       break;
 
     default:
