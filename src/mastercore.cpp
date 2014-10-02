@@ -3425,10 +3425,6 @@ int step_rc;
       rc = logicMath_MetaDEx();
       break;
 
-    case MSC_TYPE_NOTIFICATION:
-      rc = logicMath_Notification();
-      break;
-
     default:
 
       return (PKT_ERROR -100);

@@ -641,7 +641,6 @@ char *mastercore::c_strMasterProtocolTXType(int i)
     case MSC_TYPE_CREATE_PROPERTY_MANUAL: return ((char *)"Create Property - Manual");
     case MSC_TYPE_GRANT_PROPERTY_TOKENS: return ((char *)"Grant Property Tokens");
     case MSC_TYPE_REVOKE_PROPERTY_TOKENS: return ((char *)"Revoke Property Tokens");
-    case MSC_TYPE_NOTIFICATION: return ((char *)"Notification");
 
     default: return ((char *)"* unknown type *");
   }
