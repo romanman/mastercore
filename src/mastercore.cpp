@@ -3335,12 +3335,12 @@ int step_rc;
                             crowd.getIssuerCreated());
 
         //fprintf(mp_fp,"\nValues coming out of calculateFractional(): Total tokens, Tokens created, Tokens for issuer, amountMissed: issuer %s %ld %ld %ld %f\n",sp.issuer.c_str(), crowd.getUserCreated() + crowd.getIssuerCreated(), crowd.getUserCreated(), crowd.getIssuerCreated(), missedTokens);
-        
         sp.historicalData = crowd.getDatabase();
         sp.update_block = chainActive[block]->GetBlockHash();
         sp.close_early = 1;
         sp.timeclosed = blockTime;
         sp.txid_close = txid;
+        sp.missedTokens = (int64_t) missedTokens;
         _my_sps->updateSP(crowd.getPropertyId() , sp);
         
         update_tally_map(sp.issuer, crowd.getPropertyId(), missedTokens, MONEY);
