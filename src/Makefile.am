@@ -13,11 +13,11 @@ endif
 bin_PROGRAMS =
 
 if BUILD_BITCOIND
-  bin_PROGRAMS += mastercored
+  bin_PROGRAMS += bitcoind
 endif
 
 if BUILD_BITCOIN_CLI
-  bin_PROGRAMS += mastercore-cli
+  bin_PROGRAMS += bitcoin-cli
 endif
 
 SUBDIRS = . $(BUILD_QT) $(BUILD_TEST)
@@ -167,35 +167,35 @@ nodist_libbitcoin_common_a_SOURCES = $(top_srcdir)/src/obj/build.h
 #
 
 # bitcoind binary #
-mastercored_LDADD = \
+bitcoind_LDADD = \
   libbitcoin_server.a \
   libbitcoin_cli.a \
   libbitcoin_common.a \
   $(LIBLEVELDB) \
   $(LIBMEMENV)
 if ENABLE_WALLET
-mastercored_LDADD += libbitcoin_wallet.a
+bitcoind_LDADD += libbitcoin_wallet.a
 endif
-mastercored_SOURCES = bitcoind.cpp
+bitcoind_SOURCES = bitcoind.cpp
 #
 
 if TARGET_WINDOWS
-mastercored_SOURCES += bitcoind-res.rc
+bitcoind_SOURCES += bitcoind-res.rc
 endif
 
 AM_CPPFLAGS += $(BDB_CPPFLAGS)
-mastercored_LDADD += $(BOOST_LIBS) $(BDB_LIBS)
+bitcoind_LDADD += $(BOOST_LIBS) $(BDB_LIBS)
 
 # bitcoin-cli binary #
-mastercore_cli_LDADD = \
+bitcoin_cli_LDADD = \
   libbitcoin_cli.a \
   libbitcoin_common.a \
   $(BOOST_LIBS)
-mastercore_cli_SOURCES = bitcoin-cli.cpp
+bitcoin_cli_SOURCES = bitcoin-cli.cpp
 #
 
 if TARGET_WINDOWS
-mastercore_cli_SOURCES += bitcoin-cli-res.rc
+bitcoin_cli_SOURCES += bitcoin-cli-res.rc
 endif
 
 # NOTE: This dependency is not strictly necessary, but without it make may try to build both in parallel, which breaks the LevelDB build system in a race
