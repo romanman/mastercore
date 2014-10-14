@@ -205,11 +205,23 @@ BalancesView::BalancesView(QWidget *parent) :
     connect(balancesCopyAddressAction, SIGNAL(triggered()), this, SLOT(balancesCopyAddress()));
     connect(balancesCopyLabelAction, SIGNAL(triggered()), this, SLOT(balancesCopyLabel()));
     connect(balancesCopyAmountAction, SIGNAL(triggered()), this, SLOT(balancesCopyAmount()));
+
+}
+
+void BalancesView::setModel(WalletModel *model)
+{
+    this->model = model;
+    connect(model, SIGNAL(balanceChanged(qint64, qint64, qint64)), this, SLOT(balancesUpdated()));
+}
+
+void BalancesView::UpdateBalances()
+{
+    propSelectorChanged(0);
 }
 
 void BalancesView::propSelectorChanged(int idx)
 {
-    QString spId = propSelectorWidget->itemData(idx).toString();
+    QString spId = propSelectorWidget->itemData(propSelectorWidget->currentIndex()).toString();
     unsigned int propertyId = spId.toUInt();
     //repopulate with new selected balances
     //prep matrix
@@ -257,3 +269,8 @@ void BalancesView::resizeEvent(QResizeEvent* event)
 //    QWidget::resizeEvent(event);
 //    columnResizingFixer->stretchColumnWidth(TransactionTableModel::ToAddress);
 }
+void BalancesView::balancesUpdated()
+{
+    UpdateBalances();
+}
+
