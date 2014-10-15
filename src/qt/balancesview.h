@@ -35,6 +35,7 @@ public:
 
     void setModel(WalletModel *model);
     void UpdateBalances();
+    void UpdatePropSelector();
     // Date ranges for filter
     enum DateEnum
     {

@@ -69,7 +69,7 @@ SendMPDialog::SendMPDialog(QWidget *parent) :
     model(0)
 {
     ui->setupUi(this);
-    this->model = model;
+//    this->model = model;
 
 #ifdef Q_OS_MAC // Icons on push buttons are very uncommon on Mac
     ui->clearButton->setIcon(QIcon());
@@ -81,6 +81,31 @@ SendMPDialog::SendMPDialog(QWidget *parent) :
     ui->amountLineEdit->setPlaceholderText("Enter Amount");
 
     // populate property selector
+
+    // connect actions
+    connect(ui->propertyComboBox, SIGNAL(activated(int)), this, SLOT(propertyComboBoxChanged(int)));
+    connect(ui->sendFromComboBox, SIGNAL(activated(int)), this, SLOT(sendFromComboBoxChanged(int)));
+    connect(ui->clearButton, SIGNAL(clicked()), this, SLOT(clearButtonClicked()));
+    connect(ui->sendButton, SIGNAL(clicked()), this, SLOT(sendButtonClicked()));
+
+    // initial update
+    updatePropSelector();
+    updateProperty();
+    updateFrom();
+
+}
+
+void SendMPDialog::setModel(WalletModel *model)
+{
+    this->model = model;
+    connect(model, SIGNAL(balanceChanged(qint64, qint64, qint64)), this, SLOT(balancesUpdated()));
+}
+
+void SendMPDialog::updatePropSelector()
+{
+    //printf("sendmpdialog::updatePropSelector()\n");
+    QString spId = ui->propertyComboBox->itemData(ui->propertyComboBox->currentIndex()).toString();
+    ui->propertyComboBox->clear();
     for (unsigned int propertyId = 1; propertyId<100000; propertyId++)
     {
         if ((global_balance_money_maineco[propertyId] > 0) || (global_balance_reserved_maineco[propertyId] > 0))
@@ -107,22 +132,8 @@ SendMPDialog::SendMPDialog(QWidget *parent) :
             ui->propertyComboBox->addItem(spName.c_str(),spId.c_str());
         }
     }
-
-    // connect actions
-    connect(ui->propertyComboBox, SIGNAL(activated(int)), this, SLOT(propertyComboBoxChanged(int)));
-    connect(ui->sendFromComboBox, SIGNAL(activated(int)), this, SLOT(sendFromComboBoxChanged(int)));
-    connect(ui->clearButton, SIGNAL(clicked()), this, SLOT(clearButtonClicked()));
-    connect(ui->sendButton, SIGNAL(clicked()), this, SLOT(sendButtonClicked()));
-
-    // initial update
-    updateProperty();
-    updateFrom();
-}
-
-void SendMPDialog::setModel(WalletModel *model)
-{
-    this->model = model;
-    connect(model, SIGNAL(balanceChanged(qint64, qint64, qint64)), this, SLOT(balancesUpdated()));
+    int propIdx = ui->propertyComboBox->findData(spId);
+    if (propIdx != -1) { ui->propertyComboBox->setCurrentIndex(propIdx); }
 }
 
 void SendMPDialog::clearFields()
@@ -133,6 +144,7 @@ void SendMPDialog::clearFields()
 
 void SendMPDialog::updateFrom()
 {
+    //printf("sendmpdialog::updatefrom()\n");
     // update wallet balances
     set_wallet_totals();
     updateBalances();
@@ -154,6 +166,7 @@ void SendMPDialog::updateFrom()
 
 void SendMPDialog::updateProperty()
 {
+    //printf("sendmpdialog::updateproperty()\n");
     // update wallet balances
     set_wallet_totals();
 
@@ -201,6 +214,7 @@ void SendMPDialog::updateProperty()
 
 void SendMPDialog::updateBalances()
 {
+    //printf("sendmpdialog::updatebalances()\n");
     // populate balance for currently selected address and global wallet balance
     QString spId = ui->propertyComboBox->itemData(ui->propertyComboBox->currentIndex()).toString();
     unsigned int propertyId = spId.toUInt();
@@ -441,5 +455,6 @@ void SendMPDialog::sendButtonClicked()
 
 void SendMPDialog::balancesUpdated()
 {
+    updatePropSelector();
     updateBalances();
 }
