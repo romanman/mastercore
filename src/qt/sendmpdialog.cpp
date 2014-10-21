@@ -456,5 +456,5 @@ void SendMPDialog::sendButtonClicked()
 void SendMPDialog::balancesUpdated()
 {
     updatePropSelector();
-    updateBalances();
+    updateProperty();
 }
