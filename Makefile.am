@@ -4,9 +4,9 @@ SUBDIRS = src
 
 GZIP_ENV="-9n"
 
-BITCOIND_BIN=$(top_builddir)/src/mastercored$(EXEEXT)
-BITCOIN_QT_BIN=$(top_builddir)/src/qt/mastercore-qt$(EXEEXT)
-BITCOIN_CLI_BIN=$(top_builddir)/src/mastercore-cli$(EXEEXT)
+BITCOIND_BIN=$(top_builddir)/src/omnicored$(EXEEXT)
+BITCOIN_QT_BIN=$(top_builddir)/src/qt/omnicore-qt$(EXEEXT)
+BITCOIN_CLI_BIN=$(top_builddir)/src/omnicore-cli$(EXEEXT)
 BITCOIN_WIN_INSTALLER=$(PACKAGE)-$(PACKAGE_VERSION)-win$(WINDOWS_BITS)-setup$(EXEEXT)
 
 OSX_APP=Bitcoin-Qt.app

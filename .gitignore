@@ -2,8 +2,8 @@
 
 *.exe
 src/bitcoin
-src/mastercored
-src/mastercore-cli
+src/omnicored
+src/omnicore-cli
 src/test/test_bitcoin
 src/qt/test/test_bitcoin-qt
 
@@ -51,7 +51,7 @@ src/qt/test/moc*.cpp
 # Compilation and Qt preprocessor part
 *.qm
 Makefile
-mastercore-qt
+omnicore-qt
 Bitcoin-Qt.app
 
 # Unit-tests

@@ -72,7 +72,7 @@ BitcoinGUI::BitcoinGUI(bool fIsTestnet, QWidget *parent) :
 {
     GUIUtil::restoreWindowGeometry("nWindow", QSize(850, 550), this);
 
-    QString windowTitle = tr("Master Core") + " - ";
+    QString windowTitle = tr("Omni Core") + " - ";
 #ifdef ENABLE_WALLET
     /* if compiled with wallet support, -disablewallet can still disable the wallet */
     bool enableWallet = !GetBoolArg("-disablewallet", false);
@@ -272,10 +272,10 @@ void BitcoinGUI::createActions(bool fIsTestnet)
     quitAction->setShortcut(QKeySequence(Qt::CTRL + Qt::Key_Q));
     quitAction->setMenuRole(QAction::QuitRole);
     if (!fIsTestnet)
-        aboutAction = new QAction(QIcon(":/icons/bitcoin"), tr("&About Master Core"), this);
+        aboutAction = new QAction(QIcon(":/icons/bitcoin"), tr("&About Omni Core"), this);
     else
-        aboutAction = new QAction(QIcon(":/icons/bitcoin_testnet"), tr("&About Master Core"), this);
-    aboutAction->setStatusTip(tr("Show information about Master Core"));
+        aboutAction = new QAction(QIcon(":/icons/bitcoin_testnet"), tr("&About Omni Core"), this);
+    aboutAction->setStatusTip(tr("Show information about Omni Core"));
     aboutAction->setMenuRole(QAction::AboutRole);
 #if QT_VERSION < 0x050000
     aboutQtAction = new QAction(QIcon(":/trolltech/qmessagebox/images/qtlogo-64.png"), tr("About &Qt"), this);
