@@ -37,9 +37,9 @@
 #include "leveldb/db.h"
 #include "leveldb/write_batch.h"
 // end potentially overzealous includes
-using namespace json_spirit; // since now using Array in mastercore.h this needs to come first
+using namespace json_spirit; // since now using Array in omnicore.h this needs to come first
 
-#include "mastercore.h"
+#include "omnicore.h"
 using namespace mastercore;
 
 // potentially overzealous using here

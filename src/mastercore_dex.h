@@ -1,7 +1,7 @@
 #ifndef _MASTERCOIN_DEX
 #define _MASTERCOIN_DEX 1
 
-#include "mastercore.h"
+#include "omnicore.h"
 
 // this is the internal format for the offer primary key (TODO: replace by a class method)
 #define STR_SELLOFFER_ADDR_PROP_COMBO(x) ( x + "-" + strprintf("%d", prop))

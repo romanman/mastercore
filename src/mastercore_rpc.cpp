@@ -31,7 +31,7 @@ using namespace std;
 using namespace boost;
 using namespace json_spirit;
 
-#include "mastercore.h"
+#include "omnicore.h"
 
 using namespace mastercore;
 
@@ -939,7 +939,6 @@ int check_prop_valid(int64_t tmpPropId, string error, string exist_error ) {
   return tmpPropId;
 }
 
-#ifndef DISABLE_METADEX
 Value trade_MP(const Array& params, bool fHelp)
 {
     if (fHelp || params.size() < 6)
@@ -1211,7 +1210,6 @@ Value gettradehistory_MP(const Array& params, bool fHelp)
   
   return response;
 }
-#endif
 
 Value getactivedexsells_MP(const Array& params, bool fHelp)
 {

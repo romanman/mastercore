@@ -44,7 +44,7 @@ using namespace boost::assign;
 using namespace json_spirit;
 using namespace leveldb;
 
-#include "mastercore.h"
+#include "omnicore.h"
 
 using namespace mastercore;
 

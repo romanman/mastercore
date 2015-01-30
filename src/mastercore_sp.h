@@ -1,7 +1,7 @@
 #ifndef _MASTERCOIN_SP
 #define _MASTERCOIN_SP 1
 
-#include "mastercore.h"
+#include "omnicore.h"
 
 class CMPSPInfo
 {

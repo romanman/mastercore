@@ -1,7 +1,7 @@
 #ifndef _MASTERCOIN_TX
 #define _MASTERCOIN_TX 1
 
-#include "mastercore.h"
+#include "omnicore.h"
 
 // The class responsible for tx interpreting/parsing.
 //
