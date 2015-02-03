@@ -657,6 +657,15 @@ int CMPTransaction::logicMath_RevokeTokens()
       return (PKT_ERROR_TOKENS - 24);
     }
 
+
+    // change of issuer is not permitted while a crowdsale is active
+    CMPCrowd *crowd;
+    crowd = getCrowd(sender);
+    if (crowd) {
+      file_log("\tRejecting Change of Issuer: SP id:%d currently has a crowdsale active\n", property);
+      return (PKT_ERROR_TOKENS - 27);
+    }
+
     CMPSPInfo::Entry sp;
     _my_sps->getSP(property, sp);
 
