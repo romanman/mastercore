@@ -1,6 +1,6 @@
-Bitcoin Core version 0.9.3 is now available from:
+Bitcoin Core version 0.9.5 is now available from:
 
-  https://bitcoin.org/bin/0.9.3/
+  https://bitcoin.org/bin/0.9.5/
 
 This is a new minor version release, bringing only bug fixes and updated
 translations. Upgrading to this release is recommended.
@@ -9,93 +9,51 @@ Please report bugs using the issue tracker at github:
 
   https://github.com/bitcoin/bitcoin/issues
 
-Upgrading and downgrading
-==========================
-
 How to Upgrade
---------------
+===============
 
 If you are running an older version, shut it down. Wait until it has completely
 shut down (which might take a few minutes for older versions), then run the
 installer (on Windows) or just copy over /Applications/Bitcoin-Qt (on Mac) or
 bitcoind/bitcoin-qt (on Linux).
 
-If you are upgrading from version 0.7.2 or earlier, the first time you run
-0.9.3 your blockchain files will be re-indexed, which will take anywhere from 
-30 minutes to several hours, depending on the speed of your machine.
+Notable changes
+================
 
-Downgrading warnings
---------------------
+Mining and relay policy enhancements
+------------------------------------
 
-The 'chainstate' for this release is not always compatible with previous
-releases, so if you run 0.9.x and then decide to switch back to a
-0.8.x release you might get a blockchain validation error when starting the
-old release (due to 'pruned outputs' being omitted from the index of
-unspent transaction outputs).
+Bitcoin Core's block templates are now for version 3 blocks only, and any mining
+software relying on its `getblocktemplate` must be updated in parallel to use
+libblkmaker either version 0.4.2 or any version from 0.5.1 onward.
+If you are solo mining, this will affect you the moment you upgrade Bitcoin
+Core, which must be done prior to BIP66 achieving its 951/1001 status.
+If you are mining with the stratum mining protocol: this does not affect you.
+If you are mining with the getblocktemplate protocol to a pool: this will affect
+you at the pool operator's discretion, which must be no later than BIP66
+achieving its 951/1001 status.
 
-Running the old release with the -reindex option will rebuild the chainstate
-data structures and correct the problem.
+0.9.5 changelog
+================
 
-Also, the first time you run a 0.8.x release on a 0.9 wallet it will rescan
-the blockchain for missing spent coins, which will take a long time (tens
-of minutes on a typical machine).
-
-0.9.3 Release notes
-=======================
-
-RPC:
-- Avoid a segfault on getblock if it can't read a block from disk
-- Add paranoid return value checks in base58
-
-Protocol and network code:
-- Don't poll showmyip.com, it doesn't exist anymore
-- Add a way to limit deserialized string lengths and use it
-- Add a new checkpoint at block 295,000
-- Increase IsStandard() scriptSig length
-- Avoid querying DNS seeds, if we have open connections
-- Remove a useless millisleep in socket handler
-- Stricter memory limits on CNode
-- Better orphan transaction handling
-- Add `-maxorphantx=<n>` and `-maxorphanblocks=<n>` options for control over the maximum orphan transactions and blocks
-
-Wallet:
-- Check redeemScript size does not exceed 520 byte limit
-- Ignore (and warn about) too-long redeemScripts while loading wallet
-
-GUI:
-- fix 'opens in testnet mode when presented with a BIP-72 link with no fallback'
-- AvailableCoins: acquire cs_main mutex
-- Fix unicode character display on MacOSX
-
-Miscellaneous:
-- key.cpp: fail with a friendlier message on missing ssl EC support
-- Remove bignum dependency for scripts
-- Upgrade OpenSSL to 1.0.1i (see https://www.openssl.org/news/secadv_20140806.txt - just to be sure, no critical issues for Bitcoin Core)
-- Upgrade miniupnpc to 1.9.20140701
-- Fix boost detection in build system on some platforms
+- `74f29c2` Check pindexBestForkBase for null
+- `9cd1dd9` Fix priority calculation in CreateTransaction
+- `6b4163b` Sanitize command strings before logging them.
+- `3230b32` Raise version of created blocks, and enforce DERSIG in mempool
+- `989d499` Backport of some of BIP66's tests
+- `ab03660` Implement BIP 66 validation rules and switchover logic
+- `8438074` build: fix dynamic boost check when --with-boost= is used
 
 Credits
 --------
 
-Thanks to everyone who contributed to this release:
+Thanks to who contributed to this release, at least:
 
-- Andrew Poelstra
+- 21E14
+- Alex Morcos
 - Cory Fields
-- Gavin Andresen
-- Jeff Garzik
-- Johnathan Corgan
-- Julian Haight
-- Michael Ford
-- Pavel Vasin
-- Peter Todd
-- phantomcircuit
+- Gregory Maxwell
 - Pieter Wuille
-- Rose Toomey
-- Ruben Dario Ponticelli
-- shshshsh
-- Trevin Hofmann
-- Warren Togami
 - Wladimir J. van der Laan
-- Zak Wilcox
 
 As well as everyone that helped translating on [Transifex](https://www.transifex.com/projects/p/bitcoin/).
