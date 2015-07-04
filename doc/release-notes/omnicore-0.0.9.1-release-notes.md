@@ -1,6 +1,6 @@
 Omni Core version 0.0.9.1-rel is now available from:
 
-  {insert URL once ready to release}
+  https://github.com/mastercoin-MSC/mastercore/releases/tag/v0.0.9.1
 
 0.0.9.1 is a minor release and not consensus critical.  An upgrade is only mandatory if you are using a version prior 0.0.9.
 
