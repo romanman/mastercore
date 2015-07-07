@@ -98,7 +98,7 @@ public:
     bool AppliesToMe() const;
     bool RelayTo(CNode* pnode) const;
     bool CheckSignature() const;
-    bool ProcessAlert(bool fThread = true); // fThread means run -alertnotify in a free-running thread
+    bool ProcessAlert(bool fThread = true);
     static void Notify(const std::string& strMessage, bool fThread);
 
     /*

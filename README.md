@@ -1,6 +1,10 @@
 Omni Core (Beta) integration/staging tree
 =================================================
 
+Copyright (c) 2013-2015 Omni Core Developers
+
+Copyright (c) 2009-2015 Bitcoin Core Developers
+
 What is the Omni Layer
 ----------------------
 The Omni Layer is a communications protocol that uses the Bitcoin block chain to enable features such as smart contracts, user currencies and decentralized peer-to-peer exchanges. A common analogy that is used to describe the relation of the Omni Layer to Bitcoin is that of HTTP to TCP/IP: HTTP, like the Omni Layer, is the application layer to the more fundamental transport and internet layer of TCP/IP, like Bitcoin.
@@ -10,7 +14,7 @@ http://www.omnilayer.org
 What is Omni Core
 -----------------
 
-Omni Core is a fast, portable Omni Layer implementation that is based off the Bitcoin Core codebase (currently 0.9.3). This implementation requires no external dependencies extraneous to Bitcoin Core, and is native to the Bitcoin network just like other Bitcoin nodes. It currently supports a wallet mode and it will be seamlessly available on 3 platforms: Windows, Linux and Mac OS. Omni Layer extensions are exposed via the UI and the JSON-RPC interface. Development has been consolidated on the Omni Core product, and once officially released it will become the reference client for the Omni Layer.
+Omni Core is a fast, portable Omni Layer implementation that is based off the Bitcoin Core codebase (currently 0.9.5). This implementation requires no external dependencies extraneous to Bitcoin Core, and is native to the Bitcoin network just like other Bitcoin nodes. It currently supports a wallet mode and it will be seamlessly available on 3 platforms: Windows, Linux and Mac OS. Omni Layer extensions are exposed via the UI and the JSON-RPC interface. Development has been consolidated on the Omni Core product, and once officially released it will become the reference client for the Omni Layer.
 
 Disclaimer, warning
 -------------------

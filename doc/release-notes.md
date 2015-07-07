@@ -1,66 +1,59 @@
-Omni Core version 0.0.9.1-rel is now available from:
+Bitcoin Core version 0.9.5 is now available from:
 
-  {insert URL once ready to release}
+  https://bitcoin.org/bin/0.9.5/
 
-0.0.9.1 is a minor release and not consensus critical.  An upgrade is only mandatory if you are using a version prior 0.0.9.
+This is a new minor version release, bringing only bug fixes and updated
+translations. Upgrading to this release is recommended.
 
-Please report bugs using the issue tracker at GitHub:
+Please report bugs using the issue tracker at github:
 
-  https://github.com/mastercoin-MSC/mastercore/issues
-
-IMPORTANT
-=========
-
-- This is the first experimental release of Omni Layer support in the QT UI, please be vigilant with testing and do not risk large amounts of Bitcoin and Omni Layer tokens.
-- The transaction index is no longer defaulted to enabled.  You will need to ensure you have "txindex=1" (without the quotes) in your configuration file.
-- If you are upgrading from a version earlier than 0.0.9-rel you must start with the --startclean parameter at least once to refresh your persistence files.
-- The first time Omni Core is run the startup process may take an hour or more as existing Omni Layer transactions are parsed.  This is normal and should only be required the first time Omni Core is run.
-
-Upgrading and downgrading
-==========================
+  https://github.com/bitcoin/bitcoin/issues
 
 How to Upgrade
---------------
+===============
 
-If you are running an older version, shut it down. Wait until it has completely shut down (which might take a few minutes for older versions), then copy the new version of mastercored/mastercore-qt.
+If you are running an older version, shut it down. Wait until it has completely
+shut down (which might take a few minutes for older versions), then run the
+installer (on Windows) or just copy over /Applications/Bitcoin-Qt (on Mac) or
+bitcoind/bitcoin-qt (on Linux).
 
-If you are upgrading from any version earlier than 0.0.9, the first time you run you must start with the --startclean parameter at least once to refresh your persistence files.
+Notable changes
+================
 
-Downgrading
------------
+Mining and relay policy enhancements
+------------------------------------
 
-Downgrading is not currently supported as older versions will not provide accurate information.
+Bitcoin Core's block templates are now for version 3 blocks only, and any mining
+software relying on its `getblocktemplate` must be updated in parallel to use
+libblkmaker either version 0.4.2 or any version from 0.5.1 onward.
+If you are solo mining, this will affect you the moment you upgrade Bitcoin
+Core, which must be done prior to BIP66 achieving its 951/1001 status.
+If you are mining with the stratum mining protocol: this does not affect you.
+If you are mining with the getblocktemplate protocol to a pool: this will affect
+you at the pool operator's discretion, which must be no later than BIP66
+achieving its 951/1001 status.
 
-Changelog
-=========
+0.9.5 changelog
+================
 
-General
--------
+- `74f29c2` Check pindexBestForkBase for null
+- `9cd1dd9` Fix priority calculation in CreateTransaction
+- `6b4163b` Sanitize command strings before logging them.
+- `3230b32` Raise version of created blocks, and enforce DERSIG in mempool
+- `989d499` Backport of some of BIP66's tests
+- `ab03660` Implement BIP 66 validation rules and switchover logic
+- `8438074` build: fix dynamic boost check when --with-boost= is used
 
-- Extra console debugging removed
-- Bitcoin 0.10 blockchain detection (will refuse to start if out of order block storage is detected)
-- txindex default value now matches Bitcoin Core (false)
-- Update authorized alert senders
-- Added support for TX70 to RPC output
-- Fix missing LOCK of cs_main in selectCoins()
-- Versioning code updated
+Credits
+--------
 
+Thanks to who contributed to this release, at least:
 
-UI
---
+- 21E14
+- Alex Morcos
+- Cory Fields
+- Gregory Maxwell
+- Pieter Wuille
+- Wladimir J. van der Laan
 
-- New signal added for changes to Omni state (emitted from block handler for blocks containing Omni transactions)
-- Fix double clicking a transaction in overview does not activate the Bitcoin history tab
-- Splash screen updated to reflect new branding
-- Fix frame alignment in overview page
-- Update send page behaviour and layout per feedback
-- Fix column resizing on balances tab
-- Right align amounts in balances tab
-- Various rebranding to Omni Core
-- Rewritten Omni transaction history tab
-- Add protection against long labels growing the UI size to ridiculous proportions
-- Update signalling to all Omni pages to ensure up to date info
-- Override display of Mastercoin metadata for rebrand (RPC unchanged)
-- Acknowledgement of disclaimer will now be remembered
-- Ecosystem display fixed in property lookup
-- Fix intermittent startup freezes due to locks
+As well as everyone that helped translating on [Transifex](https://www.transifex.com/projects/p/bitcoin/).
